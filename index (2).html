@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>JurEdit — Ecossistema Jurídico</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body,#root{height:100%;overflow:hidden}
+body{font-family:Georgia,serif;background:#f5f4f1;color:#111}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#ccc;border-radius:3px}
+select,input,textarea{box-sizing:border-box;font-family:inherit}
+@keyframes bounce{0%,80%,100%{transform:scale(0.7);opacity:.4}40%{transform:scale(1);opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback}=React;
+
+// ── API KEY ───────────────────────────────────────────────────────
+const KEY_STORE='je_apikey';
+const getKey=()=>localStorage.getItem(KEY_STORE)||'';
+const saveKey=k=>localStorage.setItem(KEY_STORE,k.trim());
+
+// ── STORAGE ───────────────────────────────────────────────────────
+const ls=(k,d=null)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch{return d;}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}};
+
+// ── API CALL ──────────────────────────────────────────────────────
+async function callClaude(body){
+  const k=getKey();
+  if(!k)throw new Error('Chave não configurada.');
+  const r=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key':k,
+      'anthropic-version':'2023-06-01',
+      'anthropic-beta':'web-search-2025-03-05',
+      'anthropic-dangerous-direct-browser-access':'true',
+    },
+    body:JSON.stringify(body),
+  });
+  const d=await r.json();
+  if(!r.ok)throw new Error(d?.error?.message||`Erro ${r.status}`);
+  return d;
+}
+
+// ── DOCX ENGINE ───────────────────────────────────────────────────
+const CRC_T=(()=>{const t=new Uint32Array(256);for(let i=0;i<256;i++){let c=i;for(let j=0;j<8;j++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[i]=c;}return t;})();
+function crc32(d){let c=0xFFFFFFFF;for(let i=0;i<d.length;i++)c=CRC_T[(c^d[i])&0xFF]^(c>>>8);return(c^0xFFFFFFFF)>>>0;}
+function s8(s){return new TextEncoder().encode(s);}
+function cat(a){const tot=a.reduce((s,x)=>s+x.length,0);const o=new Uint8Array(tot);let p=0;for(const x of a){o.set(x,p);p+=x.length;}return o;}
+function sl(b,o,v){b[o]=v&0xFF;b[o+1]=(v>>8)&0xFF;}
+function sl4(b,o,v){b[o]=v&0xFF;b[o+1]=(v>>8)&0xFF;b[o+2]=(v>>16)&0xFF;b[o+3]=(v>>24)&0xFF;}
+function mkzip(files){const lp=[],cp=[];let off=0;for(const f of files){const n=s8(f.name),d=f.data,crc=crc32(d),sz=d.length;const lh=new Uint8Array(30+n.length);sl4(lh,0,0x04034b50);sl(lh,4,20);sl4(lh,14,crc);sl4(lh,18,sz);sl4(lh,22,sz);sl(lh,26,n.length);lh.set(n,30);const cd=new Uint8Array(46+n.length);sl4(cd,0,0x02014b50);sl(cd,4,20);sl(cd,6,20);sl4(cd,16,crc);sl4(cd,20,sz);sl4(cd,24,sz);sl(cd,28,n.length);sl4(cd,38,0);sl4(cd,42,off);cd.set(n,46);lp.push(lh,d);cp.push(cd);off+=lh.length+sz;}const cdD=cat(cp);const eocd=new Uint8Array(22);sl4(eocd,0,0x06054b50);sl(eocd,8,files.length);sl(eocd,10,files.length);sl4(eocd,12,cdD.length);sl4(eocd,16,off);return cat([...lp,cdD,eocd]);}
+function ex(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+const SC='⁰¹²³⁴⁵⁶⁷⁸⁹';
+const SM={'⁰':0,'¹':1,'²':2,'³':3,'⁴':4,'⁵':5,'⁶':6,'⁷':7,'⁸':8,'⁹':9,'¹⁰':10,'¹¹':11,'¹²':12,'¹³':13,'¹⁴':14,'¹⁵':15,'¹⁶':16,'¹⁷':17,'¹⁸':18,'¹⁹':19,'²⁰':20,'²¹':21,'²²':22,'²³':23,'²⁴':24,'²⁵':25};
+const SE=Object.entries(SM).sort((a,b)=>b[0].length-a[0].length);
+function s2n(s){for(const[k,v]of SE)if(s.startsWith(k))return{n:v,len:k.length};return null;}
+function pNN(l){const r=s2n(l);if(r)return{num:r.n,text:l.slice(r.len).trim()};const m=l.match(/^(\d{1,2})[.\):\s]\s*(.+)/);if(m)return{num:parseInt(m[1]),text:m[2]};return null;}
+const eP=()=>`<w:p><w:pPr><w:spacing w:before="0" w:after="60"/></w:pPr></w:p>`;
+function wR(r,pt=12){const sz=pt*2;const rp=[r.b?'<w:b/><w:bCs/>':'',r.i?'<w:i/><w:iCs/>':'',r.sup?'<w:vertAlign w:val="superscript"/>':'',`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join('');return`<w:r><w:rPr>${rp}</w:rPr><w:t xml:space="preserve">${ex(r.t)}</w:t></w:r>`;}
+function wP(runs,o={}){const al=o.c?'center':(o.a||'both');let ix='';if(o.in)ix=`<w:ind w:firstLine="${o.in}"/>`;if(o.il||o.ir)ix=`<w:ind ${o.il?`w:left="${o.il}"`:''}  ${o.ir?`w:right="${o.ir}"`:''}  />`;const pp=`<w:pPr><w:spacing w:before="${o.sb||0}" w:after="${o.sa||60}" w:line="${o.lv||276}" w:lineRule="auto"/>${ix}<w:jc w:val="${al}"/></w:pPr>`;return`<w:p>${pp}${runs.map(r=>wR(r,o.pt||12)).join('')}</w:p>`;}
+function wFN(id,txt){return`<w:footnote w:id="${id}"><w:p><w:pPr><w:spacing w:line="220" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r><w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve"> ${ex(txt)}</w:t></w:r></w:p></w:footnote>`;}
+function wFNR(id){return`<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="${id}"/></w:r>`;}
+function pIF(str){str=str.replace(/\[Fonte:[^\]]+\]/g,'');const out=[],re=/(\*\*[^*]+\*\*|\*[^*]+\*|[⁰¹²³⁴⁵⁶⁷⁸⁹]+)/g;let last=0,m;while((m=re.exec(str))!==null){if(m.index>last)out.push({t:str.slice(last,m.index),b:false,i:false,sup:false,fn:null});const tok=m[0];if(/^\*\*[^*]+\*\*$/.test(tok))out.push({t:tok.slice(2,-2),b:true,i:false,sup:false,fn:null});else if(/^\*[^*]+\*$/.test(tok))out.push({t:tok.slice(1,-1),b:false,i:true,sup:false,fn:null});else{const r=s2n(tok);out.push({t:tok,b:false,i:false,sup:true,fn:r?r.n:null});}last=m.index+tok.length;}if(last<str.length)out.push({t:str.slice(last),b:false,i:false,sup:false,fn:null});return out.filter(x=>x.t||(x.sup&&x.fn));}
+function wPFN(raw,o={},fm){const al=o.c?'center':(o.a||'both');let ix='';if(o.in)ix=`<w:ind w:firstLine="${o.in}"/>`;const pp=`<w:pPr><w:spacing w:before="${o.sb||0}" w:after="${o.sa||60}" w:line="${o.lv||276}" w:lineRule="auto"/>${ix}<w:jc w:val="${al}"/></w:pPr>`;const toks=pIF(raw);const sz=(o.pt||12)*2;const F=`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>`;const runs=toks.map(r=>{if(r.sup&&r.fn&&r.fn>0&&fm){if(fm[r.fn])return wFNR(r.fn);fm[r.fn]=`Nota ${r.fn}.`;return wFNR(r.fn);}const rp=[r.b?'<w:b/><w:bCs/>':'',r.i?'<w:i/><w:iCs/>':'',r.sup?'<w:vertAlign w:val="superscript"/>':'',F,`<w:sz w:val="${sz}"/>`].join('');return`<w:r><w:rPr>${rp}</w:rPr><w:t xml:space="preserve">${ex(r.t||'')}</w:t></w:r>`;}).join('');return`<w:p>${pp}${runs}</w:p>`;}
+
+function docxDownload(paras,hTxt,fnE,filename){
+  const FNX=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>${(fnE||[]).map(([id,t])=>wFN(Number(id),t)).join('')}</w:footnotes>`;
+  const H=ex(String(hTxt||'').slice(0,80));
+  const HDR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="right"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:after="80"/></w:pPr><w:r><w:rPr><w:i/><w:color w:val="555555"/><w:sz w:val="16"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>${H}</w:t></w:r></w:p></w:hdr>`;
+  const FTR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="center"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:before="80"/></w:pPr><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p></w:ftr>`;
+  const docXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${paras.join('')}<w:sectPr><w:headerReference w:type="default" r:id="rH1"/><w:footerReference w:type="default" r:id="rF1"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1800" w:right="1800" w:bottom="1800" w:left="1800" w:header="708" w:footer="708"/><w:pgNumType/></w:sectPr></w:body></w:document>`;
+  const rD=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rH1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rF1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>`;
+  const rR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const ct=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>`;
+  const sy=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:jc w:val="both"/></w:pPr></w:style><w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:basedOn w:val="DefaultParagraphFont"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style></w:styles>`;
+  const se=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>`;
+  const ft=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:font w:name="Times New Roman"/></w:fonts>`;
+  const fnR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`;
+  const files=[{name:'[Content_Types].xml',data:s8(ct)},{name:'_rels/.rels',data:s8(rR)},{name:'word/document.xml',data:s8(docXml)},{name:'word/styles.xml',data:s8(sy)},{name:'word/settings.xml',data:s8(se)},{name:'word/fontTable.xml',data:s8(ft)},{name:'word/footnotes.xml',data:s8(FNX)},{name:'word/header1.xml',data:s8(HDR)},{name:'word/footer1.xml',data:s8(FTR)},{name:'word/_rels/document.xml.rels',data:s8(rD)},{name:'word/_rels/footnotes.xml.rels',data:s8(fnR)}];
+  const zd=mkzip(files);
+  function u8b64(u){let b='';const c=8192;for(let i=0;i<u.length;i+=c)b+=String.fromCharCode(...u.subarray(i,i+c));return btoa(b);}
+  const uri='data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,'+u8b64(zd);
+  let url;try{url=URL.createObjectURL(new Blob([zd],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}));}catch{url=uri;}
+  const a=document.createElement('a');a.href=url;a.download=filename;a.style.display='none';document.body.appendChild(a);a.click();setTimeout(()=>{document.body.removeChild(a);if(url!==uri)URL.revokeObjectURL(url);},1000);
+}
+
+// ── RichText ──────────────────────────────────────────────────────
+function RichText({content}){
+  return <div style={{lineHeight:1.75,fontSize:13}}>
+    {(content||'').split('\n').map((line,i)=>{
+      if(!line.trim())return <div key={i} style={{height:8}}/>;
+      const parts=[];const re=/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;let last=0,m;
+      while((m=re.exec(line))!==null){
+        if(m.index>last)parts.push(<span key={last}>{line.slice(last,m.index)}</span>);
+        const tok=m[0];
+        if(tok.startsWith('**'))parts.push(<strong key={m.index}>{tok.slice(2,-2)}</strong>);
+        else if(tok.startsWith('*'))parts.push(<em key={m.index}>{tok.slice(1,-1)}</em>);
+        else parts.push(<code key={m.index} style={{background:'rgba(0,0,0,.07)',padding:'1px 5px',borderRadius:3,fontFamily:'monospace',fontSize:11}}>{tok.slice(1,-1)}</code>);
+        last=m.index+tok.length;
+      }
+      if(last<line.length)parts.push(<span key={last}>{line.slice(last)}</span>);
+      return <div key={i}>{parts}</div>;
+    })}
+  </div>;
+}
+
+// ── TOOL CONFIGS ──────────────────────────────────────────────────
+const TOOLS={
+  hub:{id:'hub',icon:'🏠',label:'JurHub',cor:'#c49a2a',desc:'Projeto · Bancos · Export'},
+  obra:{id:'obra',icon:'📚',label:'JurObra',cor:'#8b1a1a',desc:'Livros · Tratados · Teses',
+    system:`Você é JurObra Excellence v2 — redator jurídico de máximo padrão acadêmico com busca web em tempo real. PADRÃO: Capítulo N / TÍTULO EM CAIXA ALTA / EMENTA_CAP: subtemas. / --- / Seções em **negrito** / parágrafos com recuo / mínimo 30 notas ¹²³ / ② NOTAS DE RODAPÉ. ✗ NUNCA invente número de processo, relator ou obra. ✓ NUNCA corte o texto — entregue COMPLETO.`,
+    acoes:[
+      {ic:'📝',l:'Capítulo completo',p:'Pesquise jurisprudência e doutrina e desenvolva o CAPÍTULO COMPLETO com padrão manual clássico, mínimo 30 notas ¹²³ e ② NOTAS DE RODAPÉ. Tema: '},
+      {ic:'📄',l:'Introdução da obra',p:'Redija a Introdução completa com apresentação, justificativa, delimitação, metodologia e estrutura, para: '},
+      {ic:'📚',l:'Referências doutrinárias',p:'Pesquise e cite doutrina nacional e estrangeira (2020–2025 + clássicos) sobre: '},
+      {ic:'🔎',l:'Jurisprudência STF/STJ',p:'Pesquise jurisprudência STF e STJ (2020–2025) com número, relator, turma e data sobre: '},
+      {ic:'▶️',l:'Continuar texto',p:'Continue o texto EXATAMENTE de onde parou, sem repetir nenhuma linha:\n\n'},
+      {ic:'✏️',l:'Editar e aprimorar',p:'Edite preservando a voz e posicionamento do autor:\n\n'},
+    ]},
+  peca:{id:'peca',icon:'⚖️',label:'JurPeça',cor:'#7c3aed',desc:'Petição · Parecer · Contestação',
+    system:`Você é JurPeça Excellence v2 — redator jurídico de máximo padrão técnico com pesquisa web em tempo real. ✗ NUNCA invente número de processo, relator, data ou obra. ✓ Notas superscript ¹²³ — NUNCA [1] ou (1). ✓ Legislação vigente em 2025. ✓ Ao final: ② NOTAS DE RODAPÉ. ESTILO: técnico-jurídico preciso · voz impessoal · termos latinos em *itálico*.`,
+    acoes:[
+      {ic:'📋',l:'Peça completa',p:'Pesquise legislação e jurisprudência STF/STJ (2020–2025) e elabore a peça completa com estrutura processual, notas ¹²³ e ② NOTAS DE RODAPÉ, sobre: '},
+      {ic:'📝',l:'Dos Fatos',p:'Redija a seção DOS FATOS de forma objetiva e cronológica para: '},
+      {ic:'⚖️',l:'Do Direito',p:'Elabore DO DIREITO com fundamentos legais, doutrina e jurisprudência (notas ¹²³) sobre: '},
+      {ic:'📜',l:'Dos Pedidos',p:'Elabore DOS PEDIDOS completo e em ordem lógica para: '},
+      {ic:'🚨',l:'Tutela de urgência',p:'Redija tutela de urgência (art. 300 CPC): fumus boni iuris, periculum in mora, reversibilidade, para: '},
+      {ic:'📋',l:'Parecer completo',p:'Elabore parecer completo: EMENTA, I — DA CONSULTA, II — DO RELATÓRIO, III — DA FUNDAMENTAÇÃO, IV — DA CONCLUSÃO, notas ¹²³, sobre: '},
+      {ic:'🛡️',l:'Contestação (upload PI)',p:'Você recebeu uma PETIÇÃO INICIAL. Analise todos os pedidos, fundamentos e vícios. Elabore CONTESTAÇÃO COMPLETA: I — PRELIMINARES, II — IMPUGNAÇÃO DOS FATOS, III — DO MÉRITO, IV — DOS PEDIDOS. ② NOTAS DE RODAPÉ mínimo 15 notas.'},
+      {ic:'⛏️',l:'Mineração de julgado',p:'Você recebeu um ACÓRDÃO. Extraia: ① RATIO DECIDENDI, ② OBITER DICTA, ③ VOTOS VENCIDOS, ④ LACUNAS NÃO ENFRENTADAS, ⑤ DISTINGUISHING, ⑥ TESES EXCLUSIVAS PARA APROVEITAMENTO ESTRATÉGICO. ② NOTAS DE RODAPÉ.'},
+    ]},
+  fin:{id:'fin',icon:'📑',label:'JurFinanceiro',cor:'#0369a1',desc:'Bancário · Mercado de Capitais',
+    system:`Você é JurFinanceiro v1 — especialista em Direito Bancário e Mercado de Capitais com pesquisa web em tempo real. BASE NORMATIVA 2025: Lei 6.385/1976 (CVM), Lei 6.404/1976 (S.A.), Res. CVM 160/2022 (ofertas — substitui ICVM 400), Res. CVM 80/2022 (companhias abertas — substitui ICVM 480), Lei 10.931/2004 (CCB), Lei 9.514/1997 (CRI), Lei 11.076/2004 (CRA), Basileia III, PLDFT. ✗ NUNCA cite instrução CVM revogada como vigente. ✗ NUNCA invente números de PAS CVM ou julgados. Terminologia: *insider trading*, *bookbuilding*, *covenant*, *waterfall* em itálico.`,
+    acoes:[
+      {ic:'📑',l:'Escritura de Debêntures',p:'Elabore escritura de emissão de debêntures conforme Lei 6.404/76 e Res. CVM vigente, com espécie, conversibilidade, remuneração, vencimento, garantias, agente fiduciário e eventos de inadimplemento. Emissão de: '},
+      {ic:'📊',l:'Prospecto de Oferta',p:'Redija seção do prospecto conforme Res. CVM 160/2022 (fatores de risco / visão geral / destinação dos recursos / diluição) para companhia do setor: '},
+      {ic:'🏦',l:'CCB — Cédula de Crédito',p:'Elabore CCB completa conforme Lei 10.931/2004 com encargos, garantias e execução extrajudicial, para operação de: '},
+      {ic:'🌿',l:'CRI / CRA Securitização',p:'Elabore Termo de Securitização de CRI/CRA com créditos vinculados, regime fiduciário, agente fiduciário e eventos de liquidação antecipada, para: '},
+      {ic:'⚖️',l:'Defesa PAS CVM',p:'Elabore defesa em PAS CVM: I — PRELIMINARES (nulidade, prescrição, cerceamento), II — MÉRITO (ausência de dolo, nexo causal, ausência de dano), III — SANÇÃO (proporcionalidade, atenuantes art. 11 Lei 6.385/76). Caso: '},
+      {ic:'🔍',l:'Due Diligence Regulatório',p:'Realize due diligence jurídico-regulatório: I — LICENÇAS (CVM, BACEN, SUSEP, CADE), II — CONFORMIDADE (PLDFT, LGPD), III — CONTINGÊNCIAS, IV — RISCOS DE COMPLIANCE, V — RECOMENDAÇÕES. Empresa/operação: '},
+    ]},
+  bib:{id:'bib',icon:'📖',label:'JurBiblioteca',cor:'#c49a2a',desc:'Doutrina · ABNT · 97 obras'},
+  jur:{id:'jur',icon:'🏛️',label:'JurJurisprudência',cor:'#0369a1',desc:'STF · STJ · TST · Súmulas'},
+};
+
+// ── KEY SETUP ─────────────────────────────────────────────────────
+function KeySetup({onSave}){
+  const[k,setK]=useState('');const[err,setErr]=useState('');const[loading,setLoading]=useState(false);
+  const test=async()=>{
+    if(!k.trim()){setErr('Cole sua chave API.');return;}
+    setLoading(true);setErr('');
+    try{
+      const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':k.trim(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:5,messages:[{role:'user',content:'ok'}]})});
+      if(r.status===200||r.status===400){saveKey(k.trim());onSave();}
+      else if(r.status===401){setErr('Chave inválida. Verifique em console.anthropic.com');}
+      else{saveKey(k.trim());onSave();}
+    }catch(e){setErr('Erro de conexão. Verifique sua internet.');}
+    setLoading(false);
+  };
+  return(
+    <div style={{minHeight:'100vh',background:'#12192e',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
+      <div style={{background:'white',borderRadius:12,padding:40,maxWidth:480,width:'100%',boxShadow:'0 40px 100px rgba(0,0,0,.5)'}}>
+        <div style={{textAlign:'center',marginBottom:28}}>
+          <div style={{fontSize:36,marginBottom:8}}>⚖️</div>
+          <div style={{fontSize:22,fontWeight:700,color:'#12192e',marginBottom:6}}>JurEdit</div>
+          <div style={{fontSize:13,color:'#555',lineHeight:1.7}}>Ecossistema Jurídico Inteligente<br/>Configure sua chave API para começar</div>
+        </div>
+        <div style={{background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:8,padding:'12px 16px',marginBottom:20,fontSize:12,color:'#1e40af',lineHeight:1.7}}>
+          <strong>Como obter sua chave gratuita:</strong><br/>
+          1. Acesse <a href="https://console.anthropic.com" target="_blank" style={{color:'#1d4ed8'}}>console.anthropic.com</a><br/>
+          2. Crie uma conta (gratuita)<br/>
+          3. Clique em <strong>API Keys → Create Key</strong><br/>
+          4. Cole abaixo — fica salvo só no seu navegador
+        </div>
+        <label style={{fontSize:11,fontWeight:700,display:'block',marginBottom:6,color:'#333',textTransform:'uppercase',letterSpacing:'.06em'}}>Chave API Anthropic</label>
+        <input value={k} onChange={e=>setK(e.target.value)} placeholder="sk-ant-..." type="password"
+          style={{width:'100%',padding:'10px 14px',border:'1px solid #ddd9d0',borderRadius:6,fontFamily:'monospace',fontSize:13,outline:'none',marginBottom:10}}
+          onFocus={e=>e.target.style.borderColor='#7c3aed'} onBlur={e=>e.target.style.borderColor='#ddd9d0'}/>
+        {err&&<div style={{padding:'8px 12px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:4,fontSize:12,color:'#991b1b',marginBottom:10,fontFamily:'monospace'}}>{err}</div>}
+        <button onClick={test} disabled={loading||!k.trim()}
+          style={{width:'100%',padding:'12px',background:loading||!k.trim()?'#aaa':'#12192e',color:'white',border:'none',borderRadius:6,cursor:loading||!k.trim()?'not-allowed':'pointer',fontSize:14,fontFamily:'Georgia,serif',fontWeight:700,transition:'background .2s'}}>
+          {loading?'⏳ Verificando...':'✓ Salvar e Entrar'}
+        </button>
+        <div style={{marginTop:12,fontSize:11,color:'#999',textAlign:'center',lineHeight:1.6}}>
+          A chave fica salva somente no seu navegador — nunca enviada a terceiros
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── CHAT TOOL (reusável por obra, peça, financeiro) ───────────────
+function ChatTool({tool}){
+  const[msgs,setMsgs]=useState([]);
+  const[input,setInput]=useState('');
+  const[loading,setLoading]=useState(false);
+  const[exportSt,setExportSt]=useState('idle');
+  const[doc,setDoc]=useState(null);
+  const[showUpload,setShowUpload]=useState(false);
+  const[uploadErr,setUploadErr]=useState('');
+  const bottomRef=useRef(null);
+  const taRef=useRef(null);
+  const fileRef=useRef(null);
+
+  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:'smooth'});},[msgs,loading]);
+  useEffect(()=>{if(taRef.current){taRef.current.style.height='auto';taRef.current.style.height=Math.min(taRef.current.scrollHeight,160)+'px';}},[input]);
+
+  const handleFile=async(file)=>{
+    if(!file)return;
+    if(file.size>30*1024*1024){setUploadErr('Arquivo muito grande (máx. 30MB).');return;}
+    setUploadErr('');
+    const ext=file.name.split('.').pop().toLowerCase();
+    if(ext==='pdf'){
+      const r=new FileReader();r.onload=e=>{setDoc({tipo:'pdf',base64:e.target.result.split(',')[1],nome:file.name});setShowUpload(false);};r.readAsDataURL(file);
+    }else if(['docx','doc'].includes(ext)){
+      const r=new FileReader();r.onload=async e=>{
+        try{const x=await mammoth.extractRawText({arrayBuffer:e.target.result});setDoc({tipo:'docx',texto:x.value,nome:file.name});setShowUpload(false);}
+        catch{setUploadErr('Erro ao ler o DOCX.');}
+      };r.readAsArrayBuffer(file);
+    }else setUploadErr('Use PDF ou DOCX.');
+  };
+
+  const enviar=useCallback(async(texto)=>{
+    const prompt=texto||input.trim();
+    if(!prompt&&!doc)return;
+    if(loading)return;
+    setInput('');
+    let apiContent=prompt;
+    if(doc){
+      const instrucao=prompt||`Analise este documento conforme sua especialidade.`;
+      if(doc.tipo==='pdf')apiContent=[{type:'document',source:{type:'base64',media_type:'application/pdf',data:doc.base64}},{type:'text',text:instrucao}];
+      else apiContent=[{type:'text',text:`DOCUMENTO (${doc.nome}):\n\n${doc.texto.slice(0,30000)}\n\n---\n\n${instrucao}`}];
+    }
+    const novasMsgs=[...msgs,{role:'user',content:typeof apiContent==='string'?apiContent:prompt,docNome:doc?.nome,_api:apiContent}];
+    setMsgs(novasMsgs);setLoading(true);
+    try{
+      const data=await callClaude({model:'claude-sonnet-4-20250514',max_tokens:8000,system:tool.system||'Você é um assistente jurídico especializado.',messages:novasMsgs.map(m=>({role:m.role,content:m._api||m.content}))});
+      const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+      setMsgs(prev=>[...prev,{role:'assistant',content:txt||'Sem resposta.'}]);
+      setDoc(null);
+    }catch(e){
+      setMsgs(prev=>[...prev,{role:'assistant',content:`❌ Erro: ${e.message}`}]);
+    }
+    setLoading(false);
+  },[msgs,input,loading,tool,doc]);
+
+  const exportDocx=async()=>{
+    const conteudo=msgs.filter(m=>m.role==='assistant').map(m=>m.content).join('\n\n');
+    if(!conteudo.trim())return;
+    setExportSt('loading');
+    setTimeout(()=>{
+      try{
+        const lines=conteudo.split('\n');const noteIdx=lines.findIndex(l=>/^②?\s*NOTAS?\s*DE\s*RODAP/i.test(l.trim()));
+        const bodyLines=noteIdx>-1?lines.slice(0,noteIdx):lines;const fm={};
+        const paras=[eP(),eP()];
+        paras.push(wP([{t:tool.label,b:false,i:true,sup:false}],{c:true,pt:10,sa:40,lv:240}));
+        paras.push(wP([{t:tool.label,b:true,i:false,sup:false}],{c:true,pt:16,sb:40,sa:120,lv:280}));
+        paras.push(eP());
+        for(const line of bodyLines){
+          const raw=line.trim();if(!raw){paras.push(eP());continue;}
+          if(/^-{3,}$/.test(raw)){paras.push(`<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="000000"/></w:pBdr><w:spacing w:before="120" w:after="120"/></w:pPr></w:p>`);continue;}
+          if(raw===raw.toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(raw)&&raw.length>4&&raw.length<120&&!/^\d/.test(raw)&&!/^[①②③④⑤]/.test(raw)){paras.push(wP([{t:raw,b:true,i:false,sup:false}],{c:true,pt:14,sa:300,lv:240}));continue;}
+          if(/^EMENTA_CAP:/i.test(raw)){paras.push(wP([{t:raw.replace(/^EMENTA_CAP:\s*/i,''),b:false,i:true,sup:false}],{a:'both',pt:10,sa:0,lv:240,il:1440,ir:1440}));continue;}
+          if(/^\*\*[^*]+\*\*$/.test(raw)){paras.push(wP([{t:raw.replace(/\*\*/g,''),b:true,i:false,sup:false}],{a:'left',pt:12,sb:300,sa:100,lv:276}));continue;}
+          if(/^>\s*/.test(raw)){paras.push(wPFN(raw.replace(/^>\s*/,''),{a:'both',pt:9,sb:80,sa:80,lv:240,il:709,ir:709},fm));continue;}
+          const rc=raw.replace(/\*\*/g,'').trim();if(/^[①②③④⑤]/.test(rc)||/^NOTAS?\s*DE\s*RODAP/i.test(rc))continue;
+          if((SC.includes(raw[0])||/^\d{1,2}[.\)]\s/.test(raw))&&raw.length<400){const p=pNN(raw);if(p&&p.text.length>10)continue;}
+          paras.push(wPFN(raw,{a:'both',pt:12,in:709,sb:0,sa:60,lv:276},fm));
+        }
+        const fnE=Object.entries(fm).sort((a,b)=>Number(a[0])-Number(b[0]));
+        const slug=tool.label.replace(/[^a-zA-Z0-9]/g,'_').slice(0,20);
+        docxDownload(paras,tool.label,fnE,slug+'_'+new Date().toISOString().slice(0,10)+'.docx');
+        setExportSt('done');setTimeout(()=>setExportSt('idle'),5000);
+      }catch(e){console.error(e);setExportSt('error');setTimeout(()=>setExportSt('idle'),3000);}
+    },50);
+  };
+
+  const hasContent=msgs.some(m=>m.role==='assistant');
+  const C={bg:'#f5f4f1',white:'white',nav:'#12192e',gold:'#c49a2a',border:'#ddd9d0',textPri:'#111',textSec:'#555',textTer:'#999'};
+
+  return(
+    <div style={{height:'100%',display:'flex',flexDirection:'column',background:C.bg,overflow:'hidden'}}>
+      {/* Top */}
+      <div style={{background:C.nav,padding:'0 18px',display:'flex',alignItems:'center',gap:10,height:48,flexShrink:0}}>
+        <span style={{color:C.gold,fontFamily:'monospace',fontWeight:700,fontSize:13,letterSpacing:'.1em'}}>{tool.label.toUpperCase()}</span>
+        <span style={{background:`${C.gold}25`,border:`1px solid ${C.gold}55`,color:C.gold,fontSize:9,padding:'2px 8px',borderRadius:2,fontFamily:'monospace'}}>{tool.desc}</span>
+        <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+          {hasContent&&<button onClick={exportDocx} disabled={exportSt==='loading'} style={{padding:'5px 14px',background:exportSt==='done'?'#166534':tool.cor,color:'white',border:'none',borderRadius:3,fontSize:11,fontFamily:'monospace',cursor:'pointer'}}>{exportSt==='loading'?'⏳...':exportSt==='done'?'✅ gerado!':'⬇ .docx'}</button>}
+          {msgs.length>0&&<button onClick={()=>{if(confirm('Limpar conversa?'))setMsgs([]);setDoc(null);}} style={{padding:'5px 10px',background:'transparent',color:'rgba(255,255,255,.3)',border:'1px solid rgba(255,255,255,.1)',borderRadius:3,fontSize:10,fontFamily:'monospace',cursor:'pointer'}}>limpar</button>}
+        </div>
+      </div>
+      <div style={{flex:1,display:'flex',overflow:'hidden'}}>
+        {/* Sidebar */}
+        {tool.acoes&&(
+          <div style={{width:220,background:C.white,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',overflow:'hidden',flexShrink:0}}>
+            <div style={{flex:1,overflowY:'auto',padding:'10px 12px'}}>
+              <div style={{fontSize:9,fontFamily:'monospace',color:C.textTer,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8,marginTop:4}}>Ações rápidas</div>
+              {tool.acoes.map((a,i)=>(
+                <button key={i} onClick={()=>enviar(a.p)} style={{display:'flex',alignItems:'flex-start',gap:7,width:'100%',padding:'7px 9px',marginBottom:4,border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',textAlign:'left',background:'transparent',color:C.textSec,fontSize:11,fontFamily:'Georgia,serif',lineHeight:1.4,transition:'all .12s'}}
+                  onMouseOver={e=>{e.currentTarget.style.background=`${tool.cor}10`;e.currentTarget.style.color=C.textPri;}}
+                  onMouseOut={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.color=C.textSec;}}>
+                  <span style={{flexShrink:0}}>{a.ic}</span><span>{a.l}</span>
+                </button>
+              ))}
+              <div style={{marginTop:10,fontSize:9,fontFamily:'monospace',color:C.textTer,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:6}}>Documento (PDF/DOCX)</div>
+              <button onClick={()=>setShowUpload(v=>!v)} style={{width:'100%',padding:'8px',border:`1px solid ${doc?tool.cor:C.border}`,borderRadius:4,cursor:'pointer',background:doc?`${tool.cor}10`:'transparent',color:doc?tool.cor:C.textSec,fontSize:11,fontFamily:'monospace',display:'flex',alignItems:'center',gap:6}}>
+                📎 {doc?doc.nome.slice(0,18)+'...':'Carregar arquivo'}
+              </button>
+              {doc&&<button onClick={()=>setDoc(null)} style={{width:'100%',marginTop:4,padding:'4px',border:'1px solid #fca5a5',borderRadius:4,cursor:'pointer',background:'transparent',color:'#991b1b',fontSize:10,fontFamily:'monospace'}}>× Remover documento</button>}
+            </div>
+          </div>
+        )}
+        {/* Chat */}
+        <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          {showUpload&&(
+            <div style={{background:C.white,borderBottom:`1px solid ${C.border}`,padding:'12px 18px',flexShrink:0}}>
+              <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><span style={{fontSize:12,fontWeight:500}}>Carregar PDF ou DOCX</span><button onClick={()=>setShowUpload(false)} style={{background:'none',border:'none',cursor:'pointer',fontSize:16,color:C.textTer}}>×</button></div>
+              <div onDrop={e=>{e.preventDefault();handleFile(e.dataTransfer.files[0]);}} onDragOver={e=>e.preventDefault()} onClick={()=>fileRef.current?.click()} style={{border:`2px dashed ${C.border}`,borderRadius:8,padding:'16px',textAlign:'center',cursor:'pointer',background:'#faf8f4'}}>
+                <div style={{fontSize:24,marginBottom:4}}>📄</div><div style={{fontSize:12,color:C.textSec}}>Arraste ou clique · PDF ou DOCX · máx. 30MB</div>
+              </div>
+              <input ref={fileRef} type="file" accept=".pdf,.docx,.doc" style={{display:'none'}} onChange={e=>handleFile(e.target.files[0])}/>
+              {uploadErr&&<div style={{marginTop:6,fontSize:11,color:'#991b1b',fontFamily:'monospace'}}>❌ {uploadErr}</div>}
+            </div>
+          )}
+          <div style={{flex:1,overflowY:'auto',padding:'20px 24px'}}>
+            {msgs.length===0&&(
+              <div style={{maxWidth:520,margin:'40px auto 0',textAlign:'center'}}>
+                <div style={{fontSize:38,marginBottom:10}}>{tool.icon}</div>
+                <div style={{fontSize:18,fontWeight:700,marginBottom:6}}>{tool.label}</div>
+                <div style={{fontSize:13,color:C.textSec,lineHeight:1.7,marginBottom:16}}>{tool.desc}</div>
+                {tool.acoes&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,textAlign:'left'}}>
+                  {tool.acoes.slice(0,4).map((a,i)=>(
+                    <button key={i} onClick={()=>enviar(a.p)} style={{padding:'10px 12px',border:`1px solid ${C.border}`,borderRadius:6,cursor:'pointer',background:C.white,textAlign:'left',fontSize:12,color:C.textSec,fontFamily:'Georgia,serif',lineHeight:1.4}} onMouseOver={e=>e.currentTarget.style.borderColor=tool.cor} onMouseOut={e=>e.currentTarget.style.borderColor=C.border}>{a.ic} {a.l}</button>
+                  ))}
+                </div>}
+              </div>
+            )}
+            {msgs.map((m,i)=>(
+              <div key={i} style={{marginBottom:20,display:'flex',gap:12,justifyContent:m.role==='user'?'flex-end':'flex-start'}}>
+                {m.role==='assistant'&&<div style={{width:28,height:28,background:tool.cor,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0,marginTop:2}}>{tool.icon}</div>}
+                <div style={{maxWidth:'82%'}}>
+                  {m.docNome&&<div style={{display:'flex',marginBottom:4,justifyContent:'flex-end'}}><span style={{fontSize:10,fontFamily:'monospace',padding:'2px 8px',background:`${tool.cor}15`,border:`1px solid ${tool.cor}30`,borderRadius:10,color:tool.cor}}>📄 {m.docNome.slice(0,20)}</span></div>}
+                  <div style={{padding:'12px 16px',borderRadius:m.role==='user'?'16px 4px 16px 16px':'4px 16px 16px 16px',background:m.role==='user'?C.nav:C.white,color:m.role==='user'?'white':C.textPri,border:m.role==='assistant'?`1px solid ${C.border}`:'none',fontSize:13,lineHeight:1.75}}>
+                    {m.role==='assistant'?<RichText content={m.content}/>:<span style={{fontFamily:'Georgia,serif',fontSize:13}}>{m.content}</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {loading&&<div style={{display:'flex',gap:12,marginBottom:20}}><div style={{width:28,height:28,background:tool.cor,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0}}>{tool.icon}</div><div style={{padding:'12px 16px',background:C.white,border:`1px solid ${C.border}`,borderRadius:'4px 16px 16px 16px',display:'flex',gap:6,alignItems:'center'}}>{[0,1,2].map(j=><div key={j} style={{width:7,height:7,borderRadius:'50%',background:tool.cor,opacity:.5,animation:`bounce 1.2s ease-in-out ${j*.2}s infinite`}}/>)}</div></div>}
+            <div ref={bottomRef}/>
+          </div>
+          <div style={{borderTop:`1px solid ${C.border}`,background:C.white,padding:'12px 18px'}}>
+            <div style={{display:'flex',gap:8,alignItems:'flex-end',maxWidth:900,margin:'0 auto'}}>
+              <textarea ref={taRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();enviar();}}} placeholder={doc?'Instrução adicional... (ou envie sem texto)':'Digite sua solicitação... (Enter para enviar)'} rows={1}
+                style={{flex:1,padding:'10px 14px',border:`1px solid ${C.border}`,borderRadius:8,fontFamily:'Georgia,serif',fontSize:13,resize:'none',outline:'none',lineHeight:1.6,overflow:'hidden',background:C.bg,color:C.textPri}}
+                onFocus={e=>e.target.style.borderColor=tool.cor} onBlur={e=>e.target.style.borderColor=C.border}/>
+              <button onClick={()=>enviar()} disabled={loading||(!input.trim()&&!doc)} style={{padding:'10px 18px',background:loading||(!input.trim()&&!doc)?'#ccc':tool.cor,color:'white',border:'none',borderRadius:8,cursor:'pointer',fontSize:16,flexShrink:0,height:40}}>↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── HUB TOOL ─────────────────────────────────────────────────────
+function HubTool(){
+  const[proj,setProj]=useState(ls('je-proj',{nome:'',area:'',autores:'',capsOk:[],capsProx:[]}));
+  const[jurCache,setJurCache]=useState(ls('jura-jur-cache',[]));
+  const[bibCache,setBibCache]=useState(ls('jura-bib-cache',[]));
+  const[exportTexto,setExportTexto]=useState(ls('jura-chapters-cache',''));
+  const[aba,setAba]=useState('dash');
+  const[editProj,setEditProj]=useState(false);
+  const[pEdit,setPEdit]=useState({nome:'',area:'',autores:'',capsOkTxt:'',capsProxTxt:''});
+  const[jurIn,setJurIn]=useState('');const[bibIn,setBibIn]=useState('');
+  const[notif,setNotif]=useState('');
+  const[exportSt,setExportSt]=useState('idle');
+
+  const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(''),2500);};
+  const saveProjeto=()=>{
+    const capsOk=pEdit.capsOkTxt.split('\n').map(l=>l.trim()).filter(Boolean);
+    const capsProx=pEdit.capsProxTxt.split('\n').map(l=>{const[n,...r]=l.trim().split('|');return n&&r.length?{num:n.trim(),titulo:r.join('|').trim()}:null;}).filter(Boolean);
+    const p={nome:pEdit.nome||'Projeto',area:pEdit.area,autores:pEdit.autores,capsOk,capsProx};
+    setProj(p);lsSet('je-proj',p);setEditProj(false);showNotif('✅ Projeto salvo');
+  };
+  const addJur=()=>{if(!jurIn.trim())return;const n=[...jurCache,{id:Date.now(),texto:jurIn.trim()}];setJurCache(n);lsSet('jura-jur-cache',n);setJurIn('');showNotif('✅ Citação salva');};
+  const addBib=()=>{if(!bibIn.trim())return;const n=[...bibCache,{id:Date.now(),texto:bibIn.trim()}];setBibCache(n);lsSet('jura-bib-cache',n);setBibIn('');showNotif('✅ Referência salva');};
+  const delJur=id=>{const n=jurCache.filter(x=>x.id!==id);setJurCache(n);lsSet('jura-jur-cache',n);};
+  const delBib=id=>{const n=bibCache.filter(x=>x.id!==id);setBibCache(n);lsSet('jura-bib-cache',n);};
+
+  const exportarObra=()=>{
+    if(!exportTexto.trim())return;
+    setExportSt('loading');
+    setTimeout(()=>{
+      try{
+        const lines=exportTexto.split('\n');const noteIdx=lines.findIndex(l=>/^②?\s*NOTAS?\s*DE\s*RODAP/i.test(l.trim()));
+        const bodyLines=noteIdx>-1?lines.slice(0,noteIdx):lines;const fm={};
+        const paras=[eP(),eP(),eP()];
+        if(proj.area)paras.push(wP([{t:proj.area,b:false,i:true,sup:false}],{c:true,pt:11,sa:60,lv:240}));
+        paras.push(wP([{t:proj.nome||'Obra Jurídica',b:true,i:false,sup:false}],{c:true,pt:22,sb:60,sa:160,lv:280}));
+        if(proj.autores)paras.push(wP([{t:proj.autores,b:false,i:false,sup:false}],{c:true,pt:11,sa:40,lv:240}));
+        paras.push(eP(),eP());
+        const allCaps=[...proj.capsOk.map(c=>({label:c,ok:true})),...proj.capsProx.map(c=>({label:`Cap. ${c.num} — ${c.titulo}`,ok:false}))];
+        if(allCaps.length>0){
+          paras.push(wP([{t:'SUMÁRIO',b:true,i:false,sup:false}],{c:true,pt:14,sb:80,sa:200,lv:240}));
+          for(const c of allCaps)paras.push(wP([{t:(c.ok?'✓  ':'')+c.label,b:false,i:false,sup:false}],{a:'left',pt:11,sb:60,sa:40,lv:240}));
+          paras.push(eP(),`<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>`);
+        }
+        for(const line of bodyLines){
+          const raw=line.trim();if(!raw){paras.push(eP());continue;}
+          if(/^-{3,}$/.test(raw)){paras.push(`<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="000000"/></w:pBdr><w:spacing w:before="120" w:after="120"/></w:pPr></w:p>`);continue;}
+          if(raw===raw.toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(raw)&&raw.length>4&&raw.length<120&&!/^\d/.test(raw)){paras.push(wP([{t:raw,b:true,i:false,sup:false}],{c:true,pt:14,sa:360,lv:240}));continue;}
+          if(/^\*\*[^*]+\*\*$/.test(raw)){paras.push(wP([{t:raw.replace(/\*\*/g,''),b:true,i:false,sup:false}],{a:'left',pt:12,sb:360,sa:120,lv:276}));continue;}
+          if(/^>\s*/.test(raw)){paras.push(wPFN(raw.replace(/^>\s*/,''),{a:'both',pt:9,sb:80,sa:80,lv:240,il:709,ir:709},fm));continue;}
+          const rc=raw.replace(/\*\*/g,'').trim();if(/^[①②③④⑤]/.test(rc)||/^NOTAS?\s*DE\s*RODAP/i.test(rc))continue;
+          if((SC.includes(raw[0])||/^\d{1,2}[.\)]\s/.test(raw))&&raw.length<400){const p=pNN(raw);if(p&&p.text.length>10)continue;}
+          paras.push(wPFN(raw,{a:'both',pt:12,in:709,sb:0,sa:60,lv:276},fm));
+        }
+        const fnE=Object.entries(fm).sort((a,b)=>Number(a[0])-Number(b[0]));
+        const slug=(proj.nome||'JurObra').replace(/[^a-zA-Z0-9]/g,'_').slice(0,30);
+        docxDownload(paras,(proj.nome||'Obra').slice(0,80),fnE,slug+'_COMPLETO_'+new Date().toISOString().slice(0,10)+'.docx');
+        setExportSt('done');setTimeout(()=>setExportSt('idle'),5000);
+      }catch(e){console.error(e);setExportSt('error');setTimeout(()=>setExportSt('idle'),3000);}
+    },50);
+  };
+
+  const prog=proj.capsOk.length,total=proj.capsOk.length+proj.capsProx.length;
+  const C={bg:'#f5f4f1',white:'white',nav:'#12192e',gold:'#c49a2a',border:'#ddd9d0',textPri:'#111',textSec:'#555',textTer:'#999'};
+  const inp={width:'100%',padding:'8px 12px',border:`1px solid ${C.border}`,borderRadius:4,fontFamily:'Georgia,serif',fontSize:13,background:C.white,outline:'none'};
+
+  return(
+    <div style={{height:'100%',display:'flex',flexDirection:'column',background:C.bg,overflow:'hidden'}}>
+      <div style={{background:C.nav,padding:'0 20px',display:'flex',alignItems:'center',gap:12,height:48,flexShrink:0}}>
+        <span style={{color:C.gold,fontFamily:'monospace',fontWeight:700,fontSize:13,letterSpacing:'.1em'}}>JURHUB</span>
+        <span style={{background:`${C.gold}25`,border:`1px solid ${C.gold}55`,color:C.gold,fontSize:9,padding:'2px 8px',borderRadius:2,fontFamily:'monospace'}}>Centro de Controle</span>
+        <div style={{display:'flex',gap:0,marginLeft:16}}>
+          {[['dash','📊 Dashboard'],['bancos','🏦 Bancos'],['export','📄 Export']].map(([id,label])=>(
+            <button key={id} onClick={()=>setAba(id)} style={{padding:'0 14px',height:48,border:'none',background:'transparent',color:aba===id?C.gold:'rgba(255,255,255,.45)',cursor:'pointer',fontSize:11,fontFamily:'monospace',textTransform:'uppercase',letterSpacing:'.05em',borderBottom:aba===id?`2px solid ${C.gold}`:'2px solid transparent'}}>{label}</button>
+          ))}
+        </div>
+        <div style={{marginLeft:'auto'}}>
+          <button onClick={()=>{setPEdit({nome:proj.nome,area:proj.area,autores:proj.autores,capsOkTxt:proj.capsOk.join('\n'),capsProxTxt:proj.capsProx.map(c=>`${c.num}|${c.titulo}`).join('\n')});setEditProj(true);}} style={{padding:'5px 14px',background:'rgba(255,255,255,.08)',color:'rgba(255,255,255,.6)',border:'1px solid rgba(255,255,255,.12)',borderRadius:3,fontSize:11,fontFamily:'monospace',cursor:'pointer'}}>⚙️ Projeto</button>
+        </div>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
+        {aba==='dash'&&(
+          <div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:16}}>
+              {[[prog,'Capítulos ✓','#166534'],[total>0?Math.round(prog/total*100)+'%':'—','Progresso','#c49a2a'],[jurCache.length,'Citações','#0369a1'],[bibCache.length,'Referências','#92400e']].map(([v,l,cor],i)=>(
+                <div key={i} style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:14,textAlign:'center'}}>
+                  <div style={{fontSize:26,fontWeight:700,color:cor,lineHeight:1}}>{v}</div>
+                  <div style={{fontSize:11,color:C.textSec,marginTop:4,fontFamily:'monospace'}}>{l}</div>
+                </div>
+              ))}
+            </div>
+            {proj.nome?(
+              <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:20,marginBottom:14}}>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>
+                  <div>
+                    <div style={{fontSize:11,color:C.textTer,fontFamily:'monospace',marginBottom:4}}>OBRA</div>
+                    <div style={{fontSize:18,fontWeight:700,marginBottom:6}}>{proj.nome}</div>
+                    {proj.area&&<div style={{fontSize:12,color:C.textSec,marginBottom:2}}>📍 {proj.area}</div>}
+                    {proj.autores&&<div style={{fontSize:12,color:C.textSec}}>✍️ {proj.autores}</div>}
+                  </div>
+                  <div>
+                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}><span style={{fontSize:10,fontFamily:'monospace',color:C.textTer,textTransform:'uppercase'}}>Progresso</span><span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:'monospace'}}>{prog}/{total}</span></div>
+                    <div style={{height:6,background:'#ede8df',borderRadius:3,marginBottom:10,overflow:'hidden'}}><div style={{height:'100%',background:C.gold,borderRadius:3,width:total>0?`${(prog/total)*100}%`:'0%',transition:'width .5s'}}/></div>
+                    {proj.capsOk.map((c,i)=><div key={i} style={{fontSize:11,color:'#166534',fontFamily:'monospace',padding:'1px 0'}}>✓ {c.slice(0,50)}</div>)}
+                    {proj.capsProx.slice(0,5).map((c,i)=><div key={i} style={{fontSize:11,color:C.textTer,fontFamily:'monospace',padding:'1px 0'}}>→ Cap. {c.num} — {c.titulo.slice(0,36)}</div>)}
+                  </div>
+                </div>
+              </div>
+            ):(
+              <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:32,textAlign:'center',marginBottom:14}}>
+                <div style={{fontSize:28,marginBottom:10}}>📚</div>
+                <div style={{fontSize:13,color:C.textSec,marginBottom:16}}>Nenhum projeto configurado</div>
+                <button onClick={()=>{setPEdit({nome:'',area:'',autores:'',capsOkTxt:'',capsProxTxt:''});setEditProj(true);}} style={{padding:'10px 24px',background:C.nav,color:'white',border:'none',borderRadius:6,cursor:'pointer',fontSize:13,fontFamily:'Georgia,serif',fontWeight:700}}>⚙️ Configurar Projeto</button>
+              </div>
+            )}
+          </div>
+        )}
+        {aba==='bancos'&&(
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+            <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+              <div style={{padding:'10px 16px',background:'#eff6ff',borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:11,fontWeight:700,color:'#1d4ed8'}}>⚖️ Citações Jurisprudenciais — {jurCache.length}</span></div>
+              <div style={{padding:12}}>
+                <textarea value={jurIn} onChange={e=>setJurIn(e.target.value)} placeholder="Cole citação do JurJurisprudência..." style={{...inp,minHeight:70,resize:'vertical',lineHeight:1.6,fontSize:12}}/>
+                <button onClick={addJur} disabled={!jurIn.trim()} style={{width:'100%',marginTop:8,padding:'7px',background:'#1d4ed8',color:'white',border:'none',borderRadius:4,cursor:'pointer',fontSize:12,fontFamily:'monospace',opacity:jurIn.trim()?1:.4}}>+ Adicionar</button>
+              </div>
+              <div style={{borderTop:`1px solid ${C.border}`,maxHeight:280,overflowY:'auto'}}>
+                {jurCache.length===0?<div style={{padding:20,textAlign:'center',color:C.textTer,fontSize:12}}>Nenhuma citação</div>:jurCache.map((j,i)=>(
+                  <div key={j.id} style={{padding:'8px 12px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:8}}>
+                    <span style={{fontSize:10,fontFamily:'monospace',color:C.textTer,flexShrink:0,marginTop:2}}>{i+1}.</span>
+                    <div style={{flex:1,fontSize:11,color:C.textSec,lineHeight:1.5}}>{j.texto}</div>
+                    <div style={{display:'flex',gap:3,flexShrink:0}}>
+                      <button onClick={()=>{navigator.clipboard?.writeText(j.texto);showNotif('📋 Copiado!');}} style={{padding:'2px 6px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:3,cursor:'pointer',fontSize:9,fontFamily:'monospace',color:C.textTer}}>📋</button>
+                      <button onClick={()=>delJur(j.id)} style={{padding:'2px 6px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:3,cursor:'pointer',fontSize:9,color:'#991b1b'}}>×</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+              <div style={{padding:'10px 16px',background:'#fffbeb',borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:11,fontWeight:700,color:'#92400e'}}>📖 Referências ABNT — {bibCache.length}</span></div>
+              <div style={{padding:12}}>
+                <textarea value={bibIn} onChange={e=>setBibIn(e.target.value)} placeholder="Cole nota ABNT do JurBiblioteca..." style={{...inp,minHeight:70,resize:'vertical',lineHeight:1.6,fontSize:12}}/>
+                <button onClick={addBib} disabled={!bibIn.trim()} style={{width:'100%',marginTop:8,padding:'7px',background:'#92400e',color:'white',border:'none',borderRadius:4,cursor:'pointer',fontSize:12,fontFamily:'monospace',opacity:bibIn.trim()?1:.4}}>+ Adicionar</button>
+              </div>
+              <div style={{borderTop:`1px solid ${C.border}`,maxHeight:280,overflowY:'auto'}}>
+                {bibCache.length===0?<div style={{padding:20,textAlign:'center',color:C.textTer,fontSize:12}}>Nenhuma referência</div>:bibCache.map((b,i)=>(
+                  <div key={b.id} style={{padding:'8px 12px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:8}}>
+                    <span style={{fontSize:10,fontFamily:'monospace',color:C.textTer,flexShrink:0,marginTop:2}}>{i+1}.</span>
+                    <div style={{flex:1,fontSize:11,color:C.textSec,lineHeight:1.5,fontFamily:'monospace'}}>{b.texto}</div>
+                    <div style={{display:'flex',gap:3,flexShrink:0}}>
+                      <button onClick={()=>{navigator.clipboard?.writeText(b.texto);showNotif('📋 Copiado!');}} style={{padding:'2px 6px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:3,cursor:'pointer',fontSize:9,fontFamily:'monospace',color:C.textTer}}>📋</button>
+                      <button onClick={()=>delBib(b.id)} style={{padding:'2px 6px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:3,cursor:'pointer',fontSize:9,color:'#991b1b'}}>×</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+        {aba==='export'&&(
+          <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+            <div style={{padding:'10px 20px',background:'#f0ebe0',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <span style={{fontSize:11,fontWeight:700,color:C.nav}}>📄 Export completo da obra — {exportTexto.split(/\s+/).filter(Boolean).length.toLocaleString('pt-BR')} palavras</span>
+              <button onClick={exportarObra} disabled={exportSt==='loading'||!exportTexto.trim()} style={{padding:'7px 20px',background:exportSt==='done'?'#166534':C.nav,color:'white',border:'none',borderRadius:4,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:700,opacity:!exportTexto.trim()?.4:1}}>{exportSt==='loading'?'⏳ gerando...':exportSt==='done'?'✅ baixado!':'⬇ Exportar .docx'}</button>
+            </div>
+            <div style={{padding:'14px 20px'}}>
+              <div style={{marginBottom:10,padding:'10px 14px',background:'#f7f3ec',borderRadius:6,borderLeft:`3px solid ${C.gold}`,fontSize:12,color:C.textSec,lineHeight:1.7}}>Cole aqui todos os capítulos do <strong>JurObra</strong> em ordem. Gera .docx com capa + sumário + corpo + footnotes.</div>
+              <textarea value={exportTexto} onChange={e=>{setExportTexto(e.target.value);lsSet('jura-chapters-cache',e.target.value);}} placeholder="Cole os capítulos aqui..." style={{...inp,minHeight:360,resize:'vertical',lineHeight:1.75,fontSize:12,fontFamily:'Georgia,serif'}}/>
+            </div>
+          </div>
+        )}
+      </div>
+      {notif&&<div style={{position:'fixed',bottom:20,right:20,padding:'10px 18px',background:'#166534',color:'white',borderRadius:6,fontSize:12,fontFamily:'monospace',zIndex:9999}}>{notif}</div>}
+      {editProj&&(
+        <div style={{position:'fixed',inset:0,background:'rgba(5,10,25,.87)',zIndex:4000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+          <div style={{background:'white',borderRadius:10,width:'100%',maxWidth:580,maxHeight:'90vh',display:'flex',flexDirection:'column',boxShadow:'0 40px 100px rgba(0,0,0,.6)'}}>
+            <div style={{background:`linear-gradient(90deg,#0f1a33,${C.nav})`,padding:'14px 22px',borderRadius:'10px 10px 0 0',display:'flex',alignItems:'center',gap:12}}><span style={{color:'white',fontWeight:700,fontSize:15,fontFamily:'Georgia,serif',flex:1}}>⚙️ Configurar Projeto</span><button onClick={()=>setEditProj(false)} style={{background:'rgba(255,255,255,.12)',border:'1px solid rgba(255,255,255,.2)',color:'white',width:32,height:32,borderRadius:5,cursor:'pointer',fontSize:18}}>×</button></div>
+            <div style={{flex:1,overflowY:'auto',padding:'12px 22px'}}>
+              {[['📖 Nome da obra','nome','Teoria Geral do Processo'],['🏛 Área','area','Direito Processual Civil'],['✍️ Autores','autores','Ada Pellegrini Grinover']].map(([lbl,field,ph])=>(
+                <div key={field} style={{marginBottom:10}}><label style={{fontSize:11,fontWeight:700,display:'block',marginBottom:3}}>{lbl}</label><input value={pEdit[field]||''} onChange={e=>setPEdit(p=>({...p,[field]:e.target.value}))} placeholder={ph} style={inp}/></div>
+              ))}
+              <div style={{marginBottom:10}}><label style={{fontSize:11,fontWeight:700,display:'block',marginBottom:3}}>✅ Capítulos concluídos (um por linha)</label><textarea value={pEdit.capsOkTxt||''} onChange={e=>setPEdit(p=>({...p,capsOkTxt:e.target.value}))} style={{...inp,minHeight:70,resize:'vertical',lineHeight:1.6,fontSize:12}} placeholder="Cap. 1 — Fundamentos"/></div>
+              <div><label style={{fontSize:11,fontWeight:700,display:'block',marginBottom:3}}>⏳ Próximos (número|título)</label><textarea value={pEdit.capsProxTxt||''} onChange={e=>setPEdit(p=>({...p,capsProxTxt:e.target.value}))} style={{...inp,minHeight:80,resize:'vertical',lineHeight:1.6,fontSize:12}} placeholder="3|Jurisdição&#10;4|Competência"/></div>
+            </div>
+            <div style={{padding:'12px 22px',background:'#f7f3ec',borderTop:`1px solid ${C.border}`,borderRadius:'0 0 10px 10px',display:'flex',justifyContent:'flex-end',gap:8}}>
+              <button onClick={()=>setEditProj(false)} style={{padding:'8px 18px',background:'white',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:13,fontFamily:'Georgia,serif'}}>Cancelar</button>
+              <button onClick={saveProjeto} style={{padding:'8px 28px',background:C.nav,color:'white',border:'none',borderRadius:4,cursor:'pointer',fontSize:13,fontFamily:'Georgia,serif',fontWeight:700}}>💾 Salvar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── BIB TOOL ─────────────────────────────────────────────────────
+function BibTool(){
+  const[busca,setBusca]=useState('');const[iaResult,setIaResult]=useState('');const[loading,setLoading]=useState(false);const[err,setErr]=useState('');
+  const buscarIA=async()=>{
+    if(!busca.trim())return;setLoading(true);setIaResult('');setErr('');
+    try{
+      const data=await callClaude({model:'claude-sonnet-4-20250514',max_tokens:4000,messages:[{role:'user',content:`Pesquise referências doutrinárias jurídicas REAIS sobre: "${busca}"\nListe pelo menos 8 obras com: autor, título, edição, cidade, editora, ano.\nFormato para cada:\n**SOBRENOME, Prenome. *Título*. N. ed. Cidade: Editora, Ano.**\nNota de rodapé: SOBRENOME, *Título abrev.*, ed., cidade, editora, ano.\n\nAo final: COMO USAR NO TEXTO com 3 exemplos de citação integrada.`}]});
+      const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+      setIaResult(txt);
+      const cached=ls('jura-bib-cache',[]);cached.push({id:Date.now(),texto:'[Busca: '+busca+'] '+txt.slice(0,300)});lsSet('jura-bib-cache',cached);
+    }catch(e){setErr('❌ '+e.message);}
+    setLoading(false);
+  };
+  const C={bg:'#f5f4f1',white:'white',nav:'#12192e',gold:'#c49a2a',border:'#ddd9d0',textSec:'#555',textTer:'#999'};
+  return(
+    <div style={{height:'100%',display:'flex',flexDirection:'column',background:C.bg,overflow:'hidden'}}>
+      <div style={{background:C.nav,padding:'0 20px',display:'flex',alignItems:'center',gap:12,height:48,flexShrink:0}}><span style={{color:C.gold,fontFamily:'monospace',fontWeight:700,fontSize:13,letterSpacing:'.1em'}}>JURBIBLIOTECA</span><span style={{background:`${C.gold}25`,border:`1px solid ${C.gold}55`,color:C.gold,fontSize:9,padding:'2px 8px',borderRadius:2,fontFamily:'monospace'}}>v2 · Doutrina · ABNT</span></div>
+      <div style={{flex:1,overflowY:'auto',padding:'20px'}}>
+        <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:'16px 20px',marginBottom:14}}>
+          <div style={{display:'flex',gap:10}}>
+            <input value={busca} onChange={e=>setBusca(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')buscarIA();}} placeholder="Buscar doutrina... Ex: jurisdição, contratos bancários, insider trading" style={{flex:1,padding:'10px 14px',border:`1px solid ${C.border}`,borderRadius:6,fontFamily:'Georgia,serif',fontSize:13,background:C.bg,outline:'none'}} onFocus={e=>e.target.style.borderColor=C.gold} onBlur={e=>e.target.style.borderColor=C.border}/>
+            <button onClick={buscarIA} disabled={loading||!busca.trim()} style={{padding:'10px 20px',background:loading?'#aaa':C.nav,color:'white',border:'none',borderRadius:6,cursor:'pointer',fontSize:13,fontFamily:'monospace',fontWeight:700,whiteSpace:'nowrap'}}>{loading?'⏳...':'🔍 Buscar IA'}</button>
+          </div>
+        </div>
+        {err&&<div style={{padding:'10px 14px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:4,fontSize:12,color:'#991b1b',fontFamily:'monospace',marginBottom:12}}>{err}</div>}
+        {!iaResult&&!loading&&<div style={{textAlign:'center',padding:'48px 0',color:C.textTer}}><div style={{fontSize:36,marginBottom:14}}>📖</div><div style={{fontSize:13,color:C.textSec}}>Digite o tema e pressione Enter ou clique em Buscar IA</div></div>}
+        {loading&&<div style={{textAlign:'center',padding:'48px 0'}}><div style={{fontSize:13,color:C.textSec,fontFamily:'monospace',marginBottom:16}}>⏳ Pesquisando doutrina jurídica...</div></div>}
+        {iaResult&&(
+          <div style={{background:C.white,border:`1px solid ${C.border}`,borderLeft:'3px solid #16a34a',borderRadius:6,padding:16}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:10}}>
+              <span style={{fontSize:10,fontFamily:'monospace',color:'#166534',fontWeight:700}}>🔍 Resultado IA</span>
+              <button onClick={()=>{navigator.clipboard?.writeText(iaResult);}} style={{padding:'4px 12px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:11,fontFamily:'monospace',color:C.textSec}}>📋 Copiar</button>
+            </div>
+            <RichText content={iaResult}/>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── JUR TOOL ─────────────────────────────────────────────────────
+function JurTool(){
+  const[busca,setBusca]=useState('');const[tribunal,setTribunal]=useState('Todos');const[iaResult,setIaResult]=useState('');const[loading,setLoading]=useState(false);const[err,setErr]=useState('');const[modo,setModo]=useState('sumulas');
+  const SUMULAS=[
+    {id:'stj-297',tribunal:'STJ',tipo:'Súmula',numero:'297',tema:'CDC — contratos bancários',ementa:'O Código de Defesa do Consumidor é aplicável às instituições financeiras.',area:'Direito Bancário'},
+    {id:'stj-381',tribunal:'STJ',tipo:'Súmula',numero:'381',tema:'Contratos bancários — cláusulas abusivas',ementa:'Nos contratos bancários, é vedado ao julgador conhecer, de ofício, da abusividade das cláusulas.',area:'Direito Bancário'},
+    {id:'stj-382',tribunal:'STJ',tipo:'Súmula',numero:'382',tema:'Juros remuneratórios',ementa:'A estipulação de juros remuneratórios superiores a 12% ao ano, por si só, não indica abusividade.',area:'Direito Bancário'},
+    {id:'stj-479',tribunal:'STJ',tipo:'Súmula',numero:'479',tema:'Fraude bancária — responsabilidade',ementa:'As instituições financeiras respondem objetivamente pelos danos gerados por fortuito interno relativo a fraudes e delitos praticados por terceiros no âmbito de operações bancárias.',area:'Direito Bancário'},
+    {id:'stj-7',tribunal:'STJ',tipo:'Súmula',numero:'7',tema:'Reexame de provas',ementa:'A pretensão de simples reexame de prova não enseja recurso especial.',area:'Processo Civil'},
+    {id:'stj-83',tribunal:'STJ',tipo:'Súmula',numero:'83',tema:'Divergência jurisprudencial',ementa:'Não se conhece do recurso especial pela divergência, quando a orientação do Tribunal se firmou no mesmo sentido da decisão recorrida.',area:'Processo Civil'},
+    {id:'stj-530',tribunal:'STJ',tipo:'Súmula',numero:'530',tema:'Taxa média BACEN',ementa:'Nos contratos bancários, na impossibilidade de comprovar a taxa de juros efetivamente contratada, prevalece a taxa média de mercado divulgada pelo Bacen.',area:'Direito Bancário'},
+    {id:'stf-11',tribunal:'STF',tipo:'Súmula Vinculante',numero:'11',tema:'Uso de algemas',ementa:'Só é lícito o uso de algemas em casos de resistência e de fundado receio de fuga ou de perigo à integridade física.',area:'Direito Penal'},
+    {id:'tst-437',tribunal:'TST',tipo:'Súmula',numero:'437',tema:'Intervalo intrajornada',ementa:'A não-concessão ou a concessão parcial do intervalo intrajornada mínimo implica o pagamento total do período correspondente, com acréscimo de, no mínimo, 50%.',area:'Direito do Trabalho'},
+  ];
+  const resultados=SUMULAS.filter(r=>{const q=busca.toLowerCase();const mT=!busca||[r.tema,r.ementa,r.numero].some(s=>s.toLowerCase().includes(q));const mTr=tribunal==='Todos'||r.tribunal===tribunal;return mT&&mTr;});
+  const buscarIA=async()=>{
+    if(!busca.trim())return;setLoading(true);setIaResult('');setErr('');
+    try{
+      const data=await callClaude({model:'claude-sonnet-4-20250514',max_tokens:4000,messages:[{role:'user',content:`Pesquise jurisprudência REAL sobre: "${busca}"\nTribunal: ${tribunal==='Todos'?'STF, STJ, TST':tribunal} | Período: 2018–2025\n\nPara cada julgado:\n**[TRIBUNAL] — [Tipo] [número]/[UF]**\nRelator: [Min. Nome] | Data: [DD/MM/AAAA]\nTese: [enunciado em 2 frases]\n📋 CITAÇÃO INLINE: "o [Tribunal], ao julgar o [tipo] [número]/[UF], [Rel. Min. Nome], j. [data], fixou a tese de que [tese]"\nⁿ NOTA: "N [Tribunal], [tipo] [número]/[UF], Rel. Min. Nome, j. data."\n\n✗ NUNCA invente dados. Liste pelo menos 5 julgados.`}]});
+      const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+      setIaResult(txt);
+      const cached=ls('jura-jur-cache',[]);cached.push({id:Date.now(),texto:txt.slice(0,400)});lsSet('jura-jur-cache',cached);
+    }catch(e){setErr('❌ '+e.message);}
+    setLoading(false);
+  };
+  const C={bg:'#f5f4f1',white:'white',nav:'#12192e',gold:'#c49a2a',border:'#ddd9d0',textSec:'#555',textTer:'#999',textPri:'#111'};
+  const corTrib={STF:'#7c3aed',STJ:'#0369a1',TST:'#065f46'};
+  return(
+    <div style={{height:'100%',display:'flex',flexDirection:'column',background:C.bg,overflow:'hidden'}}>
+      <div style={{background:C.nav,padding:'0 20px',display:'flex',alignItems:'center',gap:12,height:48,flexShrink:0}}><span style={{color:C.gold,fontFamily:'monospace',fontWeight:700,fontSize:13,letterSpacing:'.1em'}}>JURJURISPRUDÊNCIA</span><span style={{background:`${C.gold}25`,border:`1px solid ${C.gold}55`,color:C.gold,fontSize:9,padding:'2px 8px',borderRadius:2,fontFamily:'monospace'}}>v2 · STF · STJ · TST · Súmulas</span></div>
+      <div style={{flex:1,overflowY:'auto',padding:'20px'}}>
+        <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px',marginBottom:14}}>
+          <div style={{display:'flex',gap:10,marginBottom:10}}>
+            <input value={busca} onChange={e=>setBusca(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&modo==='ia')buscarIA();}} placeholder="Pesquisar... Ex: usucapião, juros bancários, jornada de trabalho" style={{flex:1,padding:'9px 12px',border:`1px solid ${C.border}`,borderRadius:6,fontFamily:'Georgia,serif',fontSize:13,background:C.bg,outline:'none'}} onFocus={e=>e.target.style.borderColor=C.gold} onBlur={e=>e.target.style.borderColor=C.border}/>
+            {modo==='ia'&&<button onClick={buscarIA} disabled={loading||!busca.trim()} style={{padding:'9px 18px',background:loading?'#aaa':C.nav,color:'white',border:'none',borderRadius:6,cursor:'pointer',fontSize:13,fontFamily:'monospace',fontWeight:700,whiteSpace:'nowrap'}}>{loading?'⏳...':'🔍 Buscar IA'}</button>}
+          </div>
+          <div style={{display:'flex',gap:8'}}>
+            <select value={tribunal} onChange={e=>setTribunal(e.target.value)} style={{padding:'6px 8px',border:`1px solid ${C.border}`,borderRadius:4,fontFamily:'monospace',fontSize:12,background:C.bg,outline:'none'}}>
+              {['Todos','STF','STJ','TST','TSE','TRF1','TRF2','TRF3','TRF4','TJSP'].map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{display:'flex',gap:0,marginBottom:14,borderBottom:`1px solid ${C.border}`}}>
+          {[['sumulas',`⚖️ Súmulas (${SUMULAS.length})`],['ia','🔍 Busca IA + Web']].map(([id,label])=>(
+            <button key={id} onClick={()=>setModo(id)} style={{padding:'9px 18px',fontSize:12,fontFamily:'monospace',border:'none',background:modo===id?C.white:'transparent',cursor:'pointer',color:modo===id?C.nav:C.textTer,fontWeight:modo===id?700:400,borderBottom:modo===id?`2px solid ${C.gold}`:'2px solid transparent',marginBottom:-1}}>{label}</button>
+          ))}
+        </div>
+        {modo==='sumulas'&&(
+          <>
+            <div style={{fontSize:11,fontFamily:'monospace',color:C.textTer,marginBottom:10}}>{resultados.length} resultado{resultados.length!==1?'s':''}</div>
+            {resultados.length===0?<div style={{textAlign:'center',padding:'40px 0',color:C.textTer}}><div style={{fontSize:32,marginBottom:8}}>⚖️</div><div>Nenhuma súmula encontrada</div><button onClick={()=>setModo('ia')} style={{marginTop:12,padding:'8px 20px',background:C.nav,color:'white',border:'none',borderRadius:6,cursor:'pointer',fontSize:12,fontFamily:'monospace'}}>🔍 Busca IA</button></div>:
+            resultados.map(r=>{
+              const cor=corTrib[r.tribunal]||'#555';
+              const cit=`o ${r.tribunal}, na ${r.tipo} n. ${r.numero}, consolidou o entendimento de que "${r.ementa.slice(0,120)}..."`;
+              const nota=`N ${r.tribunal}, ${r.tipo} n. ${r.numero}: "${r.ementa.slice(0,100)}..."`;
+              return(
+                <div key={r.id} style={{background:C.white,border:`1px solid ${C.border}`,borderLeft:`3px solid ${cor}`,borderRadius:6,padding:'14px 16px',marginBottom:10}}>
+                  <div style={{display:'flex',gap:8,marginBottom:8,flexWrap:'wrap',alignItems:'center'}}>
+                    <span style={{background:`${cor}18`,color:cor,border:`1px solid ${cor}40`,fontSize:11,padding:'2px 10px',borderRadius:10,fontFamily:'monospace',fontWeight:700}}>{r.tribunal}</span>
+                    <span style={{background:'#ede8df',color:C.textSec,fontSize:10,padding:'2px 8px',borderRadius:10,fontFamily:'monospace'}}>{r.tipo} n. {r.numero}</span>
+                  </div>
+                  <div style={{fontSize:13,fontWeight:700,color:C.nav,marginBottom:6}}>{r.tema}</div>
+                  <div style={{fontSize:12,color:C.textSec,lineHeight:1.7,marginBottom:10,fontStyle:'italic',borderLeft:'2px solid #e5e0d8',paddingLeft:12}}>{r.ementa}</div>
+                  <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:4,padding:'8px 12px',fontSize:11,lineHeight:1.7,marginBottom:10}}>{cit}</div>
+                  <div style={{display:'flex',gap:8}}>
+                    <button onClick={()=>{navigator.clipboard?.writeText(cit);const c=ls('jura-jur-cache',[]);c.push({id:Date.now(),texto:cit});lsSet('jura-jur-cache',c);}} style={{padding:'5px 13px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:11,fontFamily:'monospace',color:C.textSec}}>📋 Copiar inline + salvar</button>
+                    <button onClick={()=>{navigator.clipboard?.writeText(nota);const c=ls('jura-jur-cache',[]);c.push({id:Date.now(),texto:nota});lsSet('jura-jur-cache',c);}} style={{padding:'5px 13px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:11,fontFamily:'monospace',color:C.textSec}}>ⁿ Copiar nota + salvar</button>
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        )}
+        {modo==='ia'&&(
+          <>
+            {err&&<div style={{padding:'10px 14px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:4,fontSize:12,color:'#991b1b',fontFamily:'monospace',marginBottom:12}}>{err}</div>}
+            {!iaResult&&!loading&&<div style={{textAlign:'center',padding:'48px 0',color:C.textTer}}><div style={{fontSize:36,marginBottom:14}}>🏛️</div><div style={{fontSize:13,color:C.textSec,marginBottom:14}}>Pesquisa IA com dados reais · resultados salvos no Hub</div></div>}
+            {loading&&<div style={{textAlign:'center',padding:'48px 0'}}><div style={{fontSize:13,color:C.textSec,fontFamily:'monospace',marginBottom:16}}>⏳ Pesquisando jurisprudência...</div></div>}
+            {iaResult&&(
+              <div style={{background:C.white,border:`1px solid ${C.border}`,borderLeft:'3px solid #16a34a',borderRadius:6,padding:16}}>
+                <div style={{display:'flex',justifyContent:'space-between',marginBottom:10}}>
+                  <span style={{fontSize:10,fontFamily:'monospace',color:'#166534',fontWeight:700}}>🔍 Resultado IA + Web</span>
+                  <button onClick={()=>navigator.clipboard?.writeText(iaResult)} style={{padding:'4px 12px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:11,fontFamily:'monospace',color:C.textSec}}>📋 Copiar tudo</button>
+                </div>
+                <RichText content={iaResult}/>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── APP SHELL ─────────────────────────────────────────────────────
+function App(){
+  const[hasKey,setHasKey]=useState(!!getKey());
+  const[activeId,setActiveId]=useState('hub');
+  const[collapsed,setCollapsed]=useState(false);
+
+  if(!hasKey)return <KeySetup onSave={()=>setHasKey(true)}/>;
+
+  const navItems=[
+    {id:'hub',icon:'🏠',label:'JurHub',desc:'Projeto · Bancos · Export',cor:'#c49a2a'},
+    {id:'obra',icon:'📚',label:'JurObra',desc:'Livros · Tratados',cor:'#8b1a1a'},
+    {id:'peca',icon:'⚖️',label:'JurPeça',desc:'Petição · Parecer',cor:'#7c3aed'},
+    {id:'fin',icon:'📑',label:'JurFinanceiro',desc:'Bancário · MC',cor:'#0369a1'},
+    {id:'bib',icon:'📖',label:'JurBiblioteca',desc:'Doutrina · ABNT',cor:'#c49a2a'},
+    {id:'jur',icon:'🏛️',label:'JurJurisprudência',desc:'STF · STJ · TST',cor:'#0369a1'},
+  ];
+
+  const renderTool=()=>{
+    if(activeId==='hub')return <HubTool/>;
+    if(activeId==='bib')return <BibTool/>;
+    if(activeId==='jur')return <JurTool/>;
+    const tool=TOOLS[activeId];
+    if(!tool)return null;
+    return <ChatTool key={activeId} tool={tool}/>;
+  };
+
+  return(
+    <div style={{display:'flex',height:'100vh',overflow:'hidden',background:'#f5f4f1'}}>
+      {/* Sidebar */}
+      <div style={{width:collapsed?52:210,background:'#12192e',display:'flex',flexDirection:'column',flexShrink:0,transition:'width .2s ease',overflow:'hidden',borderRight:'1px solid #0a1020'}}>
+        <div style={{padding:collapsed?'14px 0':'14px 16px',display:'flex',alignItems:'center',gap:10,borderBottom:'1px solid rgba(255,255,255,.08)',justifyContent:collapsed?'center':'flex-start'}}>
+          {!collapsed&&<><span style={{color:'#c49a2a',fontFamily:'monospace',fontWeight:700,fontSize:13,letterSpacing:'.1em',whiteSpace:'nowrap'}}>JUREDIT</span><span style={{background:'rgba(196,154,42,.2)',border:'1px solid rgba(196,154,42,.4)',color:'#c49a2a',fontSize:8,padding:'1px 6px',borderRadius:2,fontFamily:'monospace',whiteSpace:'nowrap'}}>v2</span></>}
+          <button onClick={()=>setCollapsed(v=>!v)} style={{marginLeft:'auto',background:'none',border:'none',color:'rgba(255,255,255,.4)',cursor:'pointer',fontSize:16,padding:'0 4px',lineHeight:1,flexShrink:0}}>{collapsed?'›':'‹'}</button>
+        </div>
+        <nav style={{flex:1,padding:'8px 6px',overflowY:'auto'}}>
+          {navItems.map(t=>{
+            const isActive=activeId===t.id;
+            return(
+              <button key={t.id} onClick={()=>setActiveId(t.id)} title={collapsed?t.label:undefined}
+                style={{display:'flex',alignItems:'center',gap:10,width:'100%',padding:collapsed?'10px 0':'9px 10px',marginBottom:3,border:'none',borderRadius:6,cursor:'pointer',textAlign:'left',justifyContent:collapsed?'center':'flex-start',background:isActive?`${t.cor}25`:'transparent',borderLeft:isActive&&!collapsed?`3px solid ${t.cor}`:'3px solid transparent',transition:'all .15s'}}>
+                <span style={{fontSize:16,flexShrink:0}}>{t.icon}</span>
+                {!collapsed&&<div style={{minWidth:0}}><div style={{fontSize:12,fontWeight:isActive?700:400,color:isActive?t.cor:'rgba(255,255,255,.65)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.label}</div><div style={{fontSize:10,color:'rgba(255,255,255,.3)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',fontFamily:'monospace'}}>{t.desc}</div></div>}
+              </button>
+            );
+          })}
+        </nav>
+        {!collapsed&&(
+          <div style={{padding:'8px 12px',borderTop:'1px solid rgba(255,255,255,.06)'}}>
+            <button onClick={()=>{if(confirm('Alterar chave API?')){localStorage.removeItem(KEY_STORE);setHasKey(false);}}} style={{width:'100%',padding:'6px',background:'transparent',border:'1px solid rgba(255,255,255,.1)',borderRadius:4,cursor:'pointer',color:'rgba(255,255,255,.3)',fontSize:10,fontFamily:'monospace'}}>🔑 Alterar chave API</button>
+          </div>
+        )}
+      </div>
+      {/* Main */}
+      <div style={{flex:1,overflow:'hidden'}}>
+        {renderTool()}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
