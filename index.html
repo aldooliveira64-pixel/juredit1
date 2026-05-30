@@ -645,7 +645,7 @@ function JurTool(){
             <input value={busca} onChange={e=>setBusca(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&modo==='ia')buscarIA();}} placeholder="Pesquisar... Ex: usucapião, juros bancários, jornada de trabalho" style={{flex:1,padding:'9px 12px',border:`1px solid ${C.border}`,borderRadius:6,fontFamily:'Georgia,serif',fontSize:13,background:C.bg,outline:'none'}} onFocus={e=>e.target.style.borderColor=C.gold} onBlur={e=>e.target.style.borderColor=C.border}/>
             {modo==='ia'&&<button onClick={buscarIA} disabled={loading||!busca.trim()} style={{padding:'9px 18px',background:loading?'#aaa':C.nav,color:'white',border:'none',borderRadius:6,cursor:'pointer',fontSize:13,fontFamily:'monospace',fontWeight:700,whiteSpace:'nowrap'}}>{loading?'⏳...':'🔍 Buscar IA'}</button>}
           </div>
-          <div style={{display:'flex',gap:8'}}>
+          <div style={{display:'flex',gap:8}}>
             <select value={tribunal} onChange={e=>setTribunal(e.target.value)} style={{padding:'6px 8px',border:`1px solid ${C.border}`,borderRadius:4,fontFamily:'monospace',fontSize:12,background:C.bg,outline:'none'}}>
               {['Todos','STF','STJ','TST','TSE','TRF1','TRF2','TRF3','TRF4','TJSP'].map(t=><option key={t} value={t}>{t}</option>)}
             </select>
