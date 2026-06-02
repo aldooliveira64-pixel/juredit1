@@ -1309,6 +1309,796 @@ function JurDocxEngine(){
   );
 }
 
+
+// ── JUROBRA V2 ───────────────────────────────────────────────────
+
+// ═══════════════════════════════════════════════════════════════════
+// JUROBRA v2 — Fase 2 atualizada
+// NOVO: lê bancos do Hub (jura-jur-cache / jura-bib-cache)
+// NOVO: upload PDF/DOCX — análise de referência, crítica, expansão
+// MANTÉM: projeto + sumário + capítulos + export completo
+// ═══════════════════════════════════════════════════════════════════
+
+// ── DOCX ENGINE (Fase 0 embutida) ─────────────────────────────────
+function parseNN(l){const r=s2n(l);if(r)return{num:r.n,text:l.slice(r.len).trim()};const m=l.match(/^(\d{1,2})[.\):\s]\s*(.+)/);if(m)return{num:parseInt(m[1]),text:m[2]};return null;}
+function wFN(id,txt){const sz=18;const F=`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>`;const pts=[];const re=/\*([^*]+)\*/g;let last=0,m;while((m=re.exec(txt))!==null){if(m.index>last)pts.push({t:txt.slice(last,m.index),i:false});pts.push({t:m[1],i:true});last=m.index+m[0].length;}if(last<txt.length)pts.push({t:txt.slice(last),i:false});const hi=pts.some(p=>p.i);let rx;if(!hi){rx=`<w:r><w:rPr>${F}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t xml:space="preserve"> ${esc(pts.map(p=>p.t).join(""))}</w:t></w:r>`;}else{rx=pts.map(p=>{const rp=[p.i?`<w:i/><w:iCs/>`:"",F,`<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join("");return`<w:r><w:rPr>${rp}</w:rPr><w:t xml:space="preserve">${esc(p.t)}</w:t></w:r>`;}).join("");}return`<w:footnote w:id="${id}"><w:p><w:pPr><w:spacing w:line="220" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r>${rx}</w:p></w:footnote>`;}
+function wFNR(id){return`<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="${id}"/></w:r>`;}
+function pIF(str){str=str.replace(/\[Fonte:[^\]]+\]/g,"");const out=[],re=/(\*\*[^*]+\*\*|\*[^*]+\*|[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\[(\d{1,2})\])/g;let last=0,m;while((m=re.exec(str))!==null){if(m.index>last)out.push({text:str.slice(last,m.index),bold:false,italic:false,sup:false,fnNum:null});const tok=m[0];if(/^\*\*[^*]+\*\*$/.test(tok))out.push({text:tok.slice(2,-2),bold:true,italic:false,sup:false,fnNum:null});else if(/^\*[^*]+\*$/.test(tok))out.push({text:tok.slice(1,-1),bold:false,italic:true,sup:false,fnNum:null});else{let n=null;const r=s2n(tok);if(r){n=r.n;}else{const nm=tok.match(/^\[(\d{1,2})\]$/);if(nm)n=parseInt(nm[1]);}out.push({text:tok,bold:false,italic:false,sup:true,fnNum:n});}last=m.index+tok.length;}if(last<str.length)out.push({text:str.slice(last),bold:false,italic:false,sup:false,fnNum:null});return out.filter(r=>r.text||(r.sup&&r.fnNum));}
+function wPFN(raw,o={},fm=null){const al=o.center?"center":(o.align||"both");let ix="";if(o.indent)ix=`<w:ind w:firstLine="${o.indent}"/>`;if(o.indentLeft||o.indentRight)ix=`<w:ind ${o.indentLeft?`w:left="${o.indentLeft}"`:""}  ${o.indentRight?`w:right="${o.indentRight}"`:""}  />`;const pp=`<w:pPr><w:spacing w:before="${o.spaceBefore||0}" w:after="${o.spaceAfter||60}" w:line="${o.lineVal||276}" w:lineRule="auto"/>${ix}<w:jc w:val="${al}"/></w:pPr>`;const toks=pIF(raw);const pt=o.sizePt||12;const sz=pt*2;const F=`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>`;const runs=toks.map(r=>{if(r.sup&&r.fnNum&&r.fnNum>0&&fm){if(fm[r.fnNum])return wFNR(r.fnNum);fm[r.fnNum]=`Nota ${r.fnNum}.`;return wFNR(r.fnNum);}const rp=[r.bold?`<w:b/><w:bCs/>`:"",r.italic?`<w:i/><w:iCs/>`:"",r.sup?`<w:vertAlign w:val="superscript"/>`:"",F,`<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join("");return`<w:r><w:rPr>${rp}</w:rPr><w:t xml:space="preserve">${esc(r.text||"")}</w:t></w:r>`;}).join("");return`<w:p>${pp}${runs}</w:p>`;}
+
+async function gerarDocxObra(rawText,proj){
+  const lines=rawText.split("\n");const noteIdx=lines.findIndex(l=>/^②?\s*NOTAS?\s*DE\s*RODAP/i.test(l.trim()));
+  const bodyLines=noteIdx>-1?lines.slice(0,noteIdx):lines;const fm={};
+  const tryFN=(sl)=>{for(const ln of sl){const r=ln.trim();if(!r)continue;const p=parseNN(r);if(p&&p.text.length>8)fm[p.num]=p.text;}};
+  if(noteIdx>-1)tryFN(lines.slice(noteIdx+1));
+  if(!Object.keys(fm).length)tryFN(lines.filter(l=>{const r=l.trim();return(SC.includes(r[0])||/^\d{1,2}[.\)]\s/.test(r))&&r.length<400;}));
+  if(!Object.keys(fm).length)tryFN(lines.slice(-80));
+  const RECUO=709,BODY=12,NOTE=9,SEC=12,CAP_T=14,CAP_N=12,EMENTA=10,LINE_B=276,LINE_S=240;
+  const paras=[];
+  const allCaps=[...proj.capsOk.map((c,i)=>({num:i+1,label:c,ok:true})),...proj.capsProx.map(c=>({num:c.num,label:`Cap. ${c.num} — ${c.titulo}`,ok:false}))];
+  paras.push(emptyP(),emptyP(),emptyP());
+  if(proj.area)paras.push(wPara([{text:proj.area,bold:false,italic:true,sup:false}],{center:true,sizePt:11,spaceAfter:60,lineVal:LINE_S}));
+  paras.push(wPara([{text:proj.nome||"Obra Jurídica",bold:true,italic:false,sup:false}],{center:true,sizePt:22,spaceBefore:60,spaceAfter:160,lineVal:280}));
+  if(proj.autores)paras.push(wPara([{text:proj.autores,bold:false,italic:false,sup:false}],{center:true,sizePt:11,spaceAfter:40,lineVal:LINE_S}));
+  paras.push(emptyP(),emptyP());
+  paras.push(wPara([{text:"",bold:false,italic:false,sup:false}],{center:true,sizePt:10,spaceBefore:40,spaceAfter:40,border:true}));
+  paras.push(emptyP());
+  if(allCaps.length>0){
+    paras.push(wPara([{text:"SUMÁRIO",bold:true,italic:false,sup:false}],{center:true,sizePt:14,spaceBefore:80,spaceAfter:200,lineVal:LINE_S}));
+    for(const c of allCaps){const label=typeof c.label==="string"?c.label:`Cap. ${c.num}`;paras.push(wPara([{text:(c.ok?"✓  ":"")+label,bold:false,italic:false,sup:false}],{align:"left",sizePt:11,spaceBefore:60,spaceAfter:40,lineVal:LINE_S}));}
+    paras.push(emptyP(),`<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>`);
+  }
+  for(const line of bodyLines){
+    const raw=line.trim();if(!raw){paras.push(emptyP());continue;}
+    if(/^-{3,}$/.test(raw)){paras.push(`<w:p><w:pPr><w:jc w:val="both"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="000000"/></w:pBdr><w:spacing w:before="120" w:after="120"/></w:pPr></w:p>`);continue;}
+    if(/^Cap[íi]tulo\s+[IVXLCDM\d]+$/i.test(raw)){paras.push(wPara([{text:raw,bold:false,italic:false,sup:false}],{center:true,sizePt:CAP_N,spaceAfter:120,lineVal:LINE_S}));continue;}
+    if(raw===raw.toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(raw)&&raw.length>4&&raw.length<120&&!/^\d/.test(raw)&&!/^[①②③④⑤⑥⑦⑧]/.test(raw)&&!raw.startsWith("EMENTA_CAP")){paras.push(wPara([{text:raw,bold:true,italic:false,sup:false}],{center:true,sizePt:CAP_T,spaceAfter:360,lineVal:LINE_S}));continue;}
+    if(/^EMENTA_CAP:/i.test(raw)){paras.push(wPara([{text:raw.replace(/^EMENTA_CAP:\s*/i,""),bold:false,italic:true,sup:false}],{align:"both",sizePt:EMENTA,spaceAfter:0,lineVal:LINE_S,indentLeft:1440,indentRight:1440}));continue;}
+    if(/^\*\*[^*]+\*\*$/.test(raw)){paras.push(wPara([{text:raw.replace(/\*\*/g,""),bold:true,italic:false,sup:false}],{align:"left",sizePt:SEC,spaceBefore:420,spaceAfter:180,lineVal:LINE_B}));continue;}
+    if(/^#{1,3}\s/.test(raw)){paras.push(wPara([{text:raw.replace(/^#+\s/,""),bold:true,italic:false,sup:false}],{align:"left",sizePt:SEC,spaceBefore:420,spaceAfter:180,lineVal:LINE_B}));continue;}
+    if(/^>\s*/.test(raw)){paras.push(wPFN(raw.replace(/^>\s*/,""),{align:"both",sizePt:NOTE,spaceBefore:120,spaceAfter:120,lineVal:LINE_S,indentLeft:709,indentRight:709},fm));continue;}
+    const rc=raw.replace(/\*\*/g,"").trim();
+    if(/^[①②③④⑤⑥⑦⑧]/.test(rc)||/^(NOTAS?\s*DE\s*RODAP|REFERÊNCIAS|AVALIAÇÃO\s*TÉCNICA)/i.test(rc))continue;
+    if((SC.includes(raw[0])||/^\d{1,2}[.\)]\s/.test(raw))&&raw.length<400){const p=parseNN(raw);if(p&&p.text.length>10)continue;}
+    paras.push(wPFN(raw,{align:"both",sizePt:BODY,indent:RECUO,spaceBefore:0,spaceAfter:60,lineVal:LINE_B},fm));
+  }
+  const capLine=bodyLines.find(l=>/^CAPÍTULO\s+\d+/i.test(l.trim()))||"";
+  const titLine=bodyLines.find((l,i)=>i>0&&l.trim()&&l.trim()===l.trim().toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(l.trim()))||"";
+  const hTxt=esc(([capLine.trim(),titLine.trim()].filter(Boolean).join(" — ")||proj.nome||"Edição Acadêmica").slice(0,80));
+  const fnE=Object.entries(fm).sort((a,b)=>Number(a[0])-Number(b[0]));
+  const FNX=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>${fnE.map(([id,t])=>wFN(Number(id),t)).join("")}</w:footnotes>`;
+  const docXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${paras.join("")}<w:sectPr><w:headerReference w:type="default" r:id="rH1"/><w:footerReference w:type="default" r:id="rF1"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1800" w:right="1800" w:bottom="1800" w:left="1800" w:header="708" w:footer="708"/><w:pgNumType/></w:sectPr></w:body></w:document>`;
+  const HDR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="right"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:after="80"/></w:pPr><w:r><w:rPr><w:i/><w:color w:val="555555"/><w:sz w:val="16"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>${hTxt}</w:t></w:r></w:p></w:hdr>`;
+  const FTR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="center"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:before="80"/></w:pPr><w:r><w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>— </w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r><w:r><w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t> —</w:t></w:r></w:p></w:ftr>`;
+  const rD=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable" Target="fontTable.xml"/><Relationship Id="rH1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rF1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>`;
+  const rR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const ct=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/><Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>`;
+  const sy=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:jc w:val="both"/></w:pPr></w:style><w:style w:type="character" w:styleId="DefaultParagraphFont"><w:name w:val="Default Paragraph Font"/><w:uiPriority w:val="1"/><w:semiHidden/><w:unhideWhenUsed/></w:style><w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:basedOn w:val="DefaultParagraphFont"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style></w:styles>`;
+  const se=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>`;
+  const ft=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:font w:name="Times New Roman"><w:panose1 w:val="02020603050405020304"/><w:charset w:val="00"/><w:family w:val="roman"/><w:pitch w:val="variable"/></w:font></w:fonts>`;
+  const fnR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`;
+  const files=[{name:"[Content_Types].xml",data:strToU8(ct)},{name:"_rels/.rels",data:strToU8(rR)},{name:"word/document.xml",data:strToU8(docXml)},{name:"word/styles.xml",data:strToU8(sy)},{name:"word/settings.xml",data:strToU8(se)},{name:"word/fontTable.xml",data:strToU8(ft)},{name:"word/footnotes.xml",data:strToU8(FNX)},{name:"word/header1.xml",data:strToU8(HDR)},{name:"word/footer1.xml",data:strToU8(FTR)},{name:"word/_rels/document.xml.rels",data:strToU8(rD)},{name:"word/_rels/footnotes.xml.rels",data:strToU8(fnR)}];
+  const zd=buildZip(files);function u8b64(u){let b="";const c=8192;for(let i=0;i<u.length;i+=c)b+=String.fromCharCode(...u.subarray(i,i+c));return btoa(b);}
+  const slug=(proj.nome||"JurObra").replace(/[^a-zA-Z0-9]/g,"_").slice(0,30);
+  const filename=slug+"_"+new Date().toISOString().slice(0,10)+".docx";
+  const dataUri="data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,"+u8b64(zd);
+  let url;try{const blob=new Blob([zd],{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});url=URL.createObjectURL(blob);}catch(_){url=dataUri;}
+  const a=document.createElement("a");a.href=url;a.download=filename;a.style.display="none";document.body.appendChild(a);a.click();
+  setTimeout(()=>{document.body.removeChild(a);if(url!==dataUri)URL.revokeObjectURL(url);},1000);
+  return{dataUri,filename};
+}
+
+// ── Storage API ────────────────────────────────────────────────────
+const K_PROJ = "jura-obra-project-v1";
+const K_JUR  = "jura-jur-cache";
+const K_BIB  = "jura-bib-cache";
+const PROJ_DEFAULT = { nome:"", area:"", autores:"", capsOk:[], capsProx:[] };
+
+async function sGet(key) {
+  try { const r = await window.storage?.get(key); return r?.value ? JSON.parse(r.value) : null; }
+  catch { return null; }
+}
+async function sSet(key, val) {
+  try { await window.storage?.set(key, JSON.stringify(val)); } catch {}
+}
+
+// ── Leitura de documentos ─────────────────────────────────────────
+async function lerArquivo(file) {
+  const ext = file.name.split(".").pop().toLowerCase();
+  if (ext === "pdf") {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const base64 = e.target.result.split(",")[1];
+        resolve({ tipo:"pdf", base64, nome:file.name, size:file.size });
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+  if (["docx","doc"].includes(ext)) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = async e => {
+        try {
+          const result = await mammoth.extractRawText({ arrayBuffer: e.target.result });
+          resolve({ tipo:"docx", texto:result.value, nome:file.name, size:file.size });
+        } catch(err) { reject(err); }
+      };
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(file);
+    });
+  }
+  throw new Error("Use PDF ou DOCX.");
+}
+
+// ── Modos de análise de documento (específicos para obras) ─────────
+const MODOS_DOC = {
+  referencia: {
+    label:"Obra de referência", icon:"📖", cor:"#8b1a1a",
+    instrucao:`Você recebeu uma OBRA OU CAPÍTULO DE REFERÊNCIA em PDF/DOCX.
+Leia integralmente e use como base doutrinária para o capítulo que será escrito.
+Incorpore os argumentos e citações do documento ao texto gerado, indicando
+as notas de rodapé com as referências corretas ao autor/obra lida.
+Respeite a voz e o posicionamento do documento — não contradiga sem argumentação.`
+  },
+  critica: {
+    label:"Análise crítica", icon:"🔬", cor:"#0369a1",
+    instrucao:`Você recebeu um texto jurídico para análise crítica acadêmica.
+Produza uma análise completa com:
+① SÍNTESE DA TESE CENTRAL — qual o argumento principal do autor?
+② PONTOS FORTES — onde a argumentação é mais sólida
+③ VULNERABILIDADES TÉCNICAS — lacunas, contradições, argumentos incompletos
+④ DIÁLOGO COM A DOUTRINA — como outros autores respondem à tese
+⑤ CONTRIBUIÇÃO ORIGINAL — o que o texto acrescenta ao debate
+⑥ CONCLUSÃO CRÍTICA — avaliação geral com nota fundamentada`
+  },
+  expansao: {
+    label:"Expandir argumento", icon:"✍️", cor:"#065f46",
+    instrucao:`Você recebeu um texto jurídico como ponto de partida.
+Expanda e aprofunde o argumento central com:
+— Desenvolvimento doutrinário mais denso (autores nacionais e estrangeiros)
+— Jurisprudência STF/STJ/TRFs confirmada que ampara a tese (2018–2025)
+— Exemplos práticos e hipóteses de aplicação
+— Extensão do argumento para áreas correlatas
+— Notas de rodapé ¹²³ em ABNT para todas as citações inseridas
+Mantenha o estilo e a linha argumentativa do original.`
+  },
+  replica: {
+    label:"Réplica doutrinária", icon:"⚡", cor:"#7c3aed",
+    instrucao:`Você recebeu uma tese jurídica com a qual vai dialogar criticamente.
+Redija uma RÉPLICA DOUTRINÁRIA ACADÊMICA com:
+I — DA TESE APRESENTADA (síntese objetiva sem distorção)
+II — DOS FUNDAMENTOS DA CONTRARIEDADE
+   [onde e por que a tese é equivocada ou incompleta]
+III — DA TESE ALTERNATIVA
+   [posicionamento próprio com doutrina e jurisprudência]
+IV — DA REFUTAÇÃO DOS ARGUMENTOS CENTRAIS
+   [ponto a ponto, com referências ¹²³]
+V — DA CONCLUSÃO
+Estilo: rigor técnico-acadêmico · sem retórica · notas mínimo 20`
+  },
+  fichamento: {
+    label:"Fichamento completo", icon:"📋", cor:"#c49a2a",
+    instrucao:`Você recebeu um texto jurídico para fichamento acadêmico completo.
+Produza:
+① IDENTIFICAÇÃO — autor, obra, edição, editora, ano, páginas
+② TESE CENTRAL — em 3 linhas
+③ ESTRUTURA DA OBRA — sumário sintético com descrição de cada parte
+④ CONCEITOS-CHAVE — glossário dos termos fundamentais
+⑤ CITAÇÕES RELEVANTES — 5 a 10 trechos mais significativos (com páginas)
+⑥ ARGUMENTOS CENTRAIS — desenvolvimento dos 3 principais raciocínios
+⑦ LACUNAS E CRÍTICAS — o que o autor não respondeu
+⑧ UTILIDADE PARA A PESQUISA — como e onde usar este texto`
+  },
+};
+
+// ── Configurações ──────────────────────────────────────────────────
+const TIPO_OBRA = [
+  {v:"Capítulo de livro jurídico / Tratado acadêmico", l:"Tratado / Livro"},
+  {v:"Artigo científico jurídico (Qualis/ABNT)",       l:"Artigo Científico"},
+  {v:"Dissertação ou tese de doutorado",               l:"Dissertação / Tese"},
+  {v:"Apostila jurídica",                              l:"Apostila"},
+];
+const NIVEIS = [
+  {v:"Doutorado e tratados acadêmicos de referência",         l:"Doutorado / Tratado"},
+  {v:"Operadores do Direito (juízes, advogados, promotores)", l:"Operadores do Direito"},
+  {v:"Mestrado e pós-graduação stricto sensu",                l:"Mestrado / Pós-Grad."},
+  {v:"Graduação avançada",                                    l:"Graduação Avançada"},
+];
+const ACOES = [
+  {ic:"📝",l:"Capítulo completo",    p:"Pesquise jurisprudência e doutrina atualizada e desenvolva o capítulo COMPLETO com cabeçalho (Capítulo N, TÍTULO, EMENTA_CAP), seções **negrito**, parágrafos, mínimo 30 notas ¹²³ e ② NOTAS DE RODAPÉ. Tema: "},
+  {ic:"📄",l:"Introdução da obra",   p:"Redija a Introdução completa com apresentação, justificativa, delimitação, metodologia e estrutura dos capítulos, para: "},
+  {ic:"📚",l:"Referências doutrinárias",p:"Pesquise e cite doutrina nacional e estrangeira (2020–2025 + clássicos fundantes) sobre: "},
+  {ic:"🔎",l:"Jurisprudência STF/STJ",p:"Pesquise jurisprudência STF e STJ (2020–2025) com número, relator, turma e data sobre: "},
+  {ic:"▶️",l:"Continuar texto",      p:"Continue o texto EXATAMENTE de onde parou, sem repetir nenhuma linha já escrita:\n\n"},
+  {ic:"📊",l:"Avaliação técnica",    p:"Avalie com rubrica de 8 critérios (rigor, clareza, coesão, progressão, fontes, ABNT, estilo, originalidade), nota 0–10:\n\n"},
+  {ic:"✏️",l:"Editar e aprimorar",   p:"Edite preservando integralmente a voz e o posicionamento do autor:\n\n"},
+  {ic:"🔍",l:"Revisão completa",     p:"Revisão técnica: gramática, terminologia jurídica, ABNT e consistência:\n\n"},
+];
+
+// ── System prompt ─────────────────────────────────────────────────
+function buildSystem(tipo, nivel, proj, jurCache, bibCache, temDoc, modoDoc) {
+  const okStr  = proj.capsOk.join(", ") || "nenhum";
+  const proxStr = proj.capsProx.map(c=>`Cap.${c.num} (${c.titulo})`).join("; ") || "a definir";
+  const jurStr  = jurCache.length > 0 ? jurCache.map((j,i)=>`[JUR-${i+1}] ${j.texto}`).join("\n") : "";
+  const bibStr  = bibCache.length > 0 ? bibCache.map((b,i)=>`[BIB-${i+1}] ${b.texto}`).join("\n") : "";
+
+  return `Você é JurObra Excellence v2 — redator jurídico de máximo padrão acadêmico com busca web em tempo real.
+
+PROJETO: "${proj.nome||"Sem título"}"
+Área: ${proj.area||"Direito"} | Nível: ${nivel} | Tipo: ${tipo}
+Referência de estilo: ${proj.autores||"não definido"}
+Capítulos concluídos: ${okStr}
+Próximos capítulos: ${proxStr}
+${temDoc ? `MODO ANÁLISE DE DOCUMENTO: ativo — leia o documento antes de qualquer resposta. Modo: ${MODOS_DOC[modoDoc]?.label||""}` : ""}
+${jurStr ? `\nCITAÇÕES DO BANCO (incorporar quando relevante):\n${jurStr}` : ""}
+${bibStr ? `\nREFERÊNCIAS DO BANCO (usar nas notas de rodapé):\n${bibStr}` : ""}
+
+PADRÃO MANUAL JURÍDICO ACADÊMICO CLÁSSICO:
+
+⓪ CABEÇALHO:
+  Capítulo [N]
+  TÍTULO EM CAIXA ALTA
+  EMENTA_CAP: subtemas separados por ponto.
+  ---
+
+① SEÇÕES: **negrito**, alinhado à esquerda, sem numeração arábica
+② CORPO: recuo de 1ª linha · parágrafos 6–10 linhas · obras em *itálico*
+   Voz impessoal: "cumpre observar", "não se pode olvidar"
+   Conectores: "Com efeito,", "Nesse diapasão,", "Destarte,"
+③ NOTAS: superscript ¹²³ colado à palavra · mínimo 30 por capítulo
+   Formato: ¹ Prenome Sobrenome, *Título*, N. ed., Cidade, Editora, ano, p. XX.
+④ JURISPRUDÊNCIA: inline · somente STF/STJ/TRFs 2020–2025 confirmada
+⑤ SÍNTESE: §1 conclusões · §2 segunda conclusão · §3 próximo capítulo
+⑥ SEÇÃO FINAL: ② NOTAS DE RODAPÉ (obrigatória)
+
+INTEGRIDADE: ✗ nunca invente número de processo, relator, data, autor ou obra
+✓ NUNCA corte o texto — entregue o capítulo COMPLETO`;
+}
+
+// ── Modais ─────────────────────────────────────────────────────────
+function ModalProjeto({ projeto, onSave, onClose }) {
+  const [v,setV]=useState({...projeto,capsOkTxt:projeto.capsOk.join("\n"),capsProxTxt:projeto.capsProx.map(c=>`${c.num}|${c.titulo}`).join("\n")});
+  const inp={width:"100%",padding:"8px 12px",border:"1px solid #d4cfc6",borderRadius:4,fontFamily:"Georgia,serif",fontSize:13,background:"white",outline:"none",boxSizing:"border-box"};
+  const lbl={fontSize:11,fontWeight:700,display:"block",marginBottom:4,marginTop:12};
+  const salvar=()=>{
+    const capsOk=v.capsOkTxt.split("\n").map(l=>l.trim()).filter(Boolean);
+    const capsProx=v.capsProxTxt.split("\n").map(l=>{const[n,...r]=l.trim().split("|");return n&&r.length?{num:n.trim(),titulo:r.join("|").trim()}:null;}).filter(Boolean);
+    onSave({nome:v.nome.trim()||"Novo Projeto",area:v.area.trim(),autores:v.autores.trim(),capsOk,capsProx});
+  };
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(5,10,25,.87)",zIndex:4000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"white",borderRadius:10,width:"100%",maxWidth:640,maxHeight:"94vh",display:"flex",flexDirection:"column",boxShadow:"0 40px 100px rgba(0,0,0,.6)"}}>
+        <div style={{background:"linear-gradient(90deg,#0f1a33,#1a2744)",padding:"14px 22px",borderRadius:"10px 10px 0 0",display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontSize:22}}>📚</span>
+          <span style={{color:"white",fontWeight:700,fontSize:15,fontFamily:"Georgia,serif",flex:1}}>Configurar Projeto</span>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,.12)",border:"1px solid rgba(255,255,255,.2)",color:"white",width:32,height:32,borderRadius:5,cursor:"pointer",fontSize:18}}>×</button>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"6px 24px 20px"}}>
+          {[["📖 Nome da obra","nome","Teoria Geral do Processo"],["🏛 Área","area","Direito Processual Civil"],["✍️ Autores","autores","Ada Pellegrini Grinover"]].map(([label,field,ph])=>(
+            <div key={field}><label style={lbl}>{label}</label><input style={inp} value={v[field]} onChange={e=>setV(p=>({...p,[field]:e.target.value}))} placeholder={ph}/></div>
+          ))}
+          <label style={lbl}>✅ Capítulos concluídos <span style={{fontWeight:400,color:"#8a8278"}}>(um por linha)</span></label>
+          <textarea style={{...inp,resize:"vertical",lineHeight:1.7,minHeight:80}} value={v.capsOkTxt} onChange={e=>setV(p=>({...p,capsOkTxt:e.target.value}))} placeholder="Cap. 1 — Fundamentos\nCap. 2 — Princípios"/>
+          <label style={lbl}>⏳ Próximos capítulos <span style={{fontWeight:400,color:"#8a8278"}}>número|título</span></label>
+          <textarea style={{...inp,resize:"vertical",lineHeight:1.7,minHeight:100}} value={v.capsProxTxt} onChange={e=>setV(p=>({...p,capsProxTxt:e.target.value}))} placeholder="3|Jurisdição e Ação\n4|Competência\n5|Partes"/>
+        </div>
+        <div style={{padding:"12px 24px",background:"#f7f3ec",borderTop:"1px solid #d4cfc6",borderRadius:"0 0 10px 10px",display:"flex",justifyContent:"flex-end",gap:8}}>
+          <button onClick={onClose} style={{padding:"8px 18px",background:"white",border:"1px solid #d4cfc6",borderRadius:4,cursor:"pointer",fontSize:13,fontFamily:"Georgia,serif"}}>Cancelar</button>
+          <button onClick={salvar} style={{padding:"8px 28px",background:"#8b1a1a",color:"white",border:"none",borderRadius:4,cursor:"pointer",fontSize:13,fontFamily:"Georgia,serif",fontWeight:700}}>💾 Salvar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModalSumario({ projeto, onIntegrar, onClose }) {
+  const [titulo,setTitulo]=useState(projeto.nome||"");
+  const [desc,setDesc]=useState("");
+  const [output,setOutput]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [erro,setErro]=useState("");
+  const [step,setStep]=useState("form");
+  async function gerar(){
+    if(!titulo&&!desc){setErro("Preencha o título ou a descrição.");return;}
+    setErro("");setLoading(true);setOutput("");
+    try{
+      const prompt=`Gere um SUMÁRIO COMPLETO para o tratado jurídico abaixo.
+Título: ${titulo||"Não informado"} | Área: ${projeto.area||"Direito"}
+${desc?"Descrição: "+desc:""}
+Regras: títulos reais ao tema · mínimo 3–5 seções por capítulo · ponteamento com página estimada.
+Ao final, liste apenas os capítulos:
+\`\`\`CAPITULOS
+1|Título do Capítulo 1
+2|Título do Capítulo 2
+\`\`\``;
+      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:8000,messages:[{role:"user",content:prompt}]})});
+      const data=await res.json();
+      const text=data?.content?.[0]?.text||"";
+      if(!text)throw new Error("Resposta vazia.");
+      setOutput(text);setStep("result");
+    }catch(e){setErro("Erro: "+(e.message||"verifique a conexão."));}
+    setLoading(false);
+  }
+  function integrar(){
+    const caps=[];const m=output.match(/```CAPITULOS\s*\n([\s\S]*?)```/i);
+    if(m){for(const l of m[1].split("\n")){const x=l.trim().match(/^(\d+)\|(.+)/);if(x)caps.push({num:x[1],titulo:x[2].trim()});}}
+    if(!caps.length){setErro("Não foi possível extrair automaticamente. Adicione manualmente no Configurar Projeto.");return;}
+    onIntegrar({...projeto,nome:titulo||projeto.nome,capsProx:caps});
+  }
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(5,10,25,.87)",zIndex:4000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"white",borderRadius:10,width:"100%",maxWidth:720,maxHeight:"94vh",display:"flex",flexDirection:"column",boxShadow:"0 40px 100px rgba(0,0,0,.6)"}}>
+        <div style={{background:"linear-gradient(90deg,#0f1a33,#1a2744)",padding:"14px 22px",borderRadius:"10px 10px 0 0",display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontSize:22}}>🗂️</span>
+          <span style={{color:"white",fontWeight:700,fontSize:15,fontFamily:"Georgia,serif",flex:1}}>Gerador de Sumário</span>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,.12)",border:"1px solid rgba(255,255,255,.2)",color:"white",width:32,height:32,borderRadius:5,cursor:"pointer",fontSize:18}}>×</button>
+        </div>
+        {step==="form"?(
+          <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}}>
+            <div style={{marginBottom:14}}><label style={{fontSize:11,fontWeight:700,display:"block",marginBottom:4}}>Título da obra</label><input value={titulo} onChange={e=>setTitulo(e.target.value)} placeholder="Ex: Títulos de Crédito no Direito Brasileiro" style={{width:"100%",padding:"9px 12px",border:"1px solid #d4cfc6",borderRadius:4,fontFamily:"Georgia,serif",fontSize:13,outline:"none",boxSizing:"border-box"}}/></div>
+            <div style={{marginBottom:14}}><label style={{fontSize:11,fontWeight:700,display:"block",marginBottom:4}}>Descrição / objetivo</label><textarea value={desc} onChange={e=>setDesc(e.target.value)} rows={3} placeholder="Escopo, público e abordagem da obra..." style={{width:"100%",padding:"9px 12px",border:"1px solid #d4cfc6",borderRadius:4,fontFamily:"Georgia,serif",fontSize:13,resize:"vertical",outline:"none",boxSizing:"border-box"}}/></div>
+            {erro&&<div style={{padding:"8px 12px",background:"#fef2f2",border:"1px solid #fca5a5",borderRadius:4,fontSize:12,color:"#991b1b",marginBottom:12}}>{erro}</div>}
+            <button onClick={gerar} disabled={loading} style={{width:"100%",padding:"11px",background:loading?"#aaa":"#1a2744",color:"white",border:"none",borderRadius:4,cursor:loading?"not-allowed":"pointer",fontSize:13,fontFamily:"Georgia,serif",fontWeight:700}}>{loading?"⏳ Gerando...":"🗂️ Gerar Sumário com IA"}</button>
+          </div>
+        ):(
+          <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+            <div style={{flex:1,overflowY:"auto",padding:"16px 24px"}}><div style={{background:"#f7f3ec",border:"1px solid #d4cfc6",borderRadius:4,padding:"14px 16px",fontSize:12,fontFamily:"monospace",lineHeight:1.7,whiteSpace:"pre-wrap"}}>{output}</div></div>
+            {erro&&<div style={{padding:"8px 16px",background:"#fef2f2",fontSize:11,color:"#991b1b",fontFamily:"monospace"}}>{erro}</div>}
+            <div style={{padding:"12px 24px",background:"#f7f3ec",borderTop:"1px solid #d4cfc6",display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={()=>{setStep("form");setOutput("");setErro("");}} style={{padding:"8px 18px",background:"white",border:"1px solid #d4cfc6",borderRadius:4,cursor:"pointer",fontSize:12}}>← Refazer</button>
+              <button onClick={()=>navigator.clipboard?.writeText(output)} style={{padding:"8px 18px",background:"white",border:"1px solid #d4cfc6",borderRadius:4,cursor:"pointer",fontSize:12}}>📋 Copiar</button>
+              <button onClick={integrar} style={{padding:"8px 24px",background:"#166534",color:"white",border:"none",borderRadius:4,cursor:"pointer",fontSize:13,fontFamily:"Georgia,serif",fontWeight:700}}>✅ Integrar ao Projeto</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── RichText ──────────────────────────────────────────────────────
+  return(<div style={{lineHeight:1.75,fontSize:13}}>
+    {content.split("\n").map((line,i)=>{
+      if(!line.trim())return<div key={i} style={{height:8}}/>;
+      const parts=[];const re=/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;let last=0,m;
+      while((m=re.exec(line))!==null){if(m.index>last)parts.push(<span key={last}>{line.slice(last,m.index)}</span>);const tok=m[0];if(tok.startsWith("**"))parts.push(<strong key={m.index}>{tok.slice(2,-2)}</strong>);else if(tok.startsWith("*"))parts.push(<em key={m.index}>{tok.slice(1,-1)}</em>);else parts.push(<code key={m.index} style={{background:"rgba(0,0,0,.07)",padding:"1px 5px",borderRadius:3,fontFamily:"monospace",fontSize:11}}>{tok.slice(1,-1)}</code>);last=m.index+tok.length;}
+      if(last<line.length)parts.push(<span key={last}>{line.slice(last)}</span>);
+      return<div key={i}>{parts}</div>;
+    })}
+  </div>);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// COMPONENTE PRINCIPAL
+// ═══════════════════════════════════════════════════════════════════
+function JurObraV2() {
+  const [projeto, setProjeto]     = useState(PROJ_DEFAULT);
+  const [tipo, setTipo]           = useState(TIPO_OBRA[0].v);
+  const [nivel, setNivel]         = useState(NIVEIS[0].v);
+  const [msgs, setMsgs]           = useState([]);
+  const [input, setInput]         = useState("");
+  const [loading, setLoading]     = useState(false);
+  const [modal, setModal]         = useState(null);
+  const [exportStatus, setExportStatus] = useState("idle");
+  const [storageOk, setStorageOk] = useState(false);
+  const [sidebarOpen, setSidebarOpen]   = useState(true);
+  const [initLoading, setInitLoading]   = useState(true);
+
+  // Bancos do Hub
+  const [jurCache, setJurCache]   = useState([]);
+  const [bibCache, setBibCache]   = useState([]);
+  const [hubSec, setHubSec]       = useState("jur"); // qual seção do banco está aberta
+
+  // Documento carregado
+  const [doc, setDoc]             = useState(null);
+  const [modoDoc, setModoDoc]     = useState("referencia");
+  const [uploadErr, setUploadErr] = useState("");
+  const [uploadLoading, setUploadLoading] = useState(false);
+  const [showUpload, setShowUpload]       = useState(false);
+
+  // Inserção de item do banco no input
+  const [inserido, setInserido]   = useState(null);
+
+  const fileInputRef = useRef(null);
+  const bottomRef    = useRef(null);
+  const taRef        = useRef(null);
+
+  // Carregar tudo na montagem
+  useEffect(() => {
+    (async () => {
+      const [p, j, b] = await Promise.all([sGet(K_PROJ), sGet(K_JUR), sGet(K_BIB)]);
+      if (p) { setProjeto(p); setStorageOk(true); }
+      if (j) setJurCache(Array.isArray(j) ? j : []);
+      if (b) setBibCache(Array.isArray(b) ? b : []);
+      setInitLoading(false);
+    })();
+  }, []);
+
+  // Refrescar bancos a cada 60s (usuário pode ter adicionado no Hub)
+  useEffect(() => {
+    const id = setInterval(async () => {
+      const [j, b] = await Promise.all([sGet(K_JUR), sGet(K_BIB)]);
+      if (j) setJurCache(Array.isArray(j) ? j : []);
+      if (b) setBibCache(Array.isArray(b) ? b : []);
+    }, 60000);
+    return () => clearInterval(id);
+  }, []);
+
+  const salvarProjeto = async (p) => {
+    setProjeto(p); setModal(null);
+    await sSet(K_PROJ, p); setStorageOk(true);
+  };
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:"smooth" }); }, [msgs, loading]);
+  useEffect(() => {
+    if (taRef.current) { taRef.current.style.height = "auto"; taRef.current.style.height = Math.min(taRef.current.scrollHeight, 160) + "px"; }
+  }, [input]);
+
+  // Inserir item do banco no campo de texto
+  const inserirNoBanco = (texto, idx) => {
+    setInput(prev => prev ? prev + "\n\n" + texto : texto);
+    setInserido(idx); setTimeout(() => setInserido(null), 2000);
+    taRef.current?.focus();
+  };
+
+  // Upload de documento
+  const handleFile = async (file) => {
+    if (!file) return;
+    if (file.size > 30 * 1024 * 1024) { setUploadErr("Arquivo muito grande (máx. 30MB)."); return; }
+    setUploadErr(""); setUploadLoading(true);
+    try {
+      const d = await lerArquivo(file);
+      setDoc({ ...d, modoKey: modoDoc });
+      setShowUpload(false);
+    } catch(e) { setUploadErr(e.message || "Erro ao ler o arquivo."); }
+    setUploadLoading(false);
+  };
+
+  const montarContentDoc = (d, instrucaoExtra) => {
+    const instrucao = MODOS_DOC[d.modoKey]?.instrucao + (instrucaoExtra ? `\n\nINSTRUÇÃO: ${instrucaoExtra}` : "");
+    if (d.tipo === "pdf") {
+      return [
+        { type:"document", source:{ type:"base64", media_type:"application/pdf", data:d.base64 } },
+        { type:"text", text: instrucao },
+      ];
+    }
+    return [{ type:"text", text:`DOCUMENTO (${d.nome}):\n\n${d.texto.slice(0,30000)}\n\n---\n\n${instrucao}` }];
+  };
+
+  // Disparar capítulo
+  const dispararCapitulo = (cap) => {
+    const jurStr = jurCache.length > 0 ? `\nUse as citações do banco: ${jurCache.map(j=>j.texto).join(" | ")}` : "";
+    const bibStr = bibCache.length > 0 ? `\nUse as referências do banco: ${bibCache.map(b=>b.texto).join(" | ")}` : "";
+    const prompt = `Pesquise jurisprudência e doutrina atualizada e desenvolva o CAPÍTULO ${cap.num} COMPLETO seguindo o padrão manual clássico. Cabeçalho (Capítulo ${cap.num}, TÍTULO EM CAIXA ALTA, EMENTA_CAP), seções em **negrito**, parágrafos com recuo, mínimo 30 notas ¹²³ e ② NOTAS DE RODAPÉ ao final.${jurStr}${bibStr}\n\nCapítulo: ${cap.num}|${cap.titulo}`;
+    enviar(prompt);
+  };
+
+  // Enviar mensagem
+  const enviar = useCallback(async (texto) => {
+    const prompt = texto || input.trim();
+    if (!prompt && !doc) return;
+    if (loading) return;
+    setInput("");
+
+    const msgContent = doc
+      ? [...montarContentDoc(doc, prompt), ...[] ]
+      : prompt;
+
+    const novasMsgs = [...msgs, {
+      role:"user",
+      content: typeof msgContent === "string" ? msgContent : prompt,
+      docContent: doc ? msgContent : null,
+      docNome: doc?.nome,
+      docModo: doc ? MODOS_DOC[doc.modoKey]?.label : null,
+    }];
+    setMsgs(novasMsgs); setLoading(true);
+
+    try {
+      const apiMsgs = novasMsgs.map(m => ({ role:m.role, content: m.docContent || m.content }));
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          model:"claude-sonnet-4-20250514", max_tokens:1000,
+          system: buildSystem(tipo, nivel, projeto, jurCache, bibCache, !!doc, doc?.modoKey),
+          messages: apiMsgs,
+          tools: [{ type:"web_search_20250305", name:"web_search" }],
+        }),
+      });
+      const data = await resp.json();
+      const txt = (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
+      setMsgs(prev => [...prev, { role:"assistant", content: txt || "Sem resposta." }]);
+      setDoc(null);
+    } catch(e) {
+      setMsgs(prev => [...prev, { role:"assistant", content:"❌ Erro de conexão. Tente novamente." }]);
+    } finally { setLoading(false); }
+  }, [msgs, input, loading, tipo, nivel, projeto, jurCache, bibCache, doc]);
+
+  const handleExport = async () => {
+    const conteudo = msgs.filter(m=>m.role==="assistant").map(m=>m.content).join("\n\n");
+    if (!conteudo.trim()) return;
+    setExportStatus("loading");
+    try { await gerarDocxObra(conteudo, projeto); setExportStatus("done"); setTimeout(()=>setExportStatus("idle"),6000); }
+    catch(e) { console.error(e); setExportStatus("error"); setTimeout(()=>setExportStatus("idle"),4000); }
+  };
+
+  const C = { bg:"#f5f4f1", white:"white", nav:"#12192e", gold:"#c49a2a", red:"#8b1a1a", border:"#ddd9d0", textPri:"#111", textSec:"#555", textTer:"#999" };
+  const hasContent = msgs.some(m=>m.role==="assistant");
+  const prog = projeto.capsOk.length;
+  const total = projeto.capsOk.length + projeto.capsProx.length;
+
+  if (initLoading) return (
+    <div style={{minHeight:"100vh",background:C.bg,display:"flex",alignItems:"center",justifyContent:"center"}}>
+      <div style={{textAlign:"center"}}>
+        <div style={{fontSize:32,marginBottom:10}}>📚</div>
+        <div style={{fontSize:13,color:C.textSec,fontFamily:"monospace"}}>carregando projeto e bancos...</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{height:"100vh",display:"flex",flexDirection:"column",background:C.bg,fontFamily:"Georgia,serif",color:C.textPri,overflow:"hidden"}}>
+
+      {/* TOP BAR */}
+      <div style={{background:C.nav,padding:"0 18px",display:"flex",alignItems:"center",gap:10,height:48,flexShrink:0,borderBottom:"1px solid #0a1020"}}>
+        <button onClick={()=>setSidebarOpen(v=>!v)} style={{background:"none",border:"none",color:"rgba(255,255,255,.5)",cursor:"pointer",fontSize:16}}>☰</button>
+        <span style={{color:C.gold,fontFamily:"monospace",fontWeight:700,fontSize:13,letterSpacing:".1em"}}>JUROBRA</span>
+        <span style={{background:`${C.gold}25`,border:`1px solid ${C.gold}55`,color:C.gold,fontSize:9,padding:"2px 8px",borderRadius:2,fontFamily:"monospace"}}>v2 · Hub + PDF</span>
+        <div style={{width:1,height:20,background:"rgba(255,255,255,.1)",margin:"0 4px"}}/>
+        {projeto.nome
+          ? <span style={{fontSize:12,color:"rgba(255,255,255,.7)",maxWidth:300,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>📖 {projeto.nome}</span>
+          : <span style={{fontSize:11,color:"rgba(255,255,255,.3)",fontFamily:"monospace",fontStyle:"italic"}}>nenhum projeto</span>}
+        {storageOk && <span style={{fontSize:9,color:"#4ade80",fontFamily:"monospace"}}>● salvo</span>}
+        {(jurCache.length > 0 || bibCache.length > 0) && (
+          <span style={{fontSize:9,color:"#60a5fa",fontFamily:"monospace"}}>
+            🔗 Hub: {jurCache.length} cit. · {bibCache.length} ref.
+          </span>
+        )}
+        <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
+          {hasContent && <button onClick={handleExport} disabled={exportStatus==="loading"} style={{padding:"5px 14px",background:exportStatus==="done"?"#166534":C.red,color:"white",border:"none",borderRadius:3,fontSize:11,fontFamily:"monospace",cursor:"pointer",transition:"background .2s"}}>{exportStatus==="loading"?"⏳...":exportStatus==="done"?"✅ gerado!":"⬇ .docx"}</button>}
+          <button onClick={()=>setModal("sumario")} style={{padding:"5px 12px",background:"rgba(255,255,255,.08)",color:"rgba(255,255,255,.6)",border:"1px solid rgba(255,255,255,.12)",borderRadius:3,fontSize:10,fontFamily:"monospace",cursor:"pointer"}}>🗂️ Sumário</button>
+          <button onClick={()=>setModal("projeto")} style={{padding:"5px 12px",background:"rgba(255,255,255,.08)",color:"rgba(255,255,255,.6)",border:"1px solid rgba(255,255,255,.12)",borderRadius:3,fontSize:10,fontFamily:"monospace",cursor:"pointer"}}>⚙️ Projeto</button>
+          {msgs.length>0 && <button onClick={()=>{if(window.confirm("Limpar?"))setMsgs([]);}} style={{padding:"5px 10px",background:"transparent",color:"rgba(255,255,255,.25)",border:"1px solid rgba(255,255,255,.08)",borderRadius:3,fontSize:10,fontFamily:"monospace",cursor:"pointer"}}>limpar</button>}
+        </div>
+      </div>
+
+      <div style={{flex:1,display:"flex",overflow:"hidden"}}>
+
+        {/* SIDEBAR */}
+        {sidebarOpen && (
+          <div style={{width:248,background:C.white,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",overflow:"hidden",flexShrink:0}}>
+
+            {/* Tipo e nível */}
+            <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
+              <div style={{fontSize:9,fontFamily:"monospace",color:C.textTer,textTransform:"uppercase",letterSpacing:".07em",marginBottom:4}}>Tipo de obra</div>
+              <select value={tipo} onChange={e=>setTipo(e.target.value)} style={{width:"100%",padding:"6px 8px",border:`1px solid ${C.border}`,borderRadius:4,fontFamily:"Georgia,serif",fontSize:12,background:C.bg,outline:"none",marginBottom:8}}>
+                {TIPO_OBRA.map(t=><option key={t.v} value={t.v}>{t.l}</option>)}
+              </select>
+              <div style={{fontSize:9,fontFamily:"monospace",color:C.textTer,textTransform:"uppercase",letterSpacing:".07em",marginBottom:4}}>Nível</div>
+              <select value={nivel} onChange={e=>setNivel(e.target.value)} style={{width:"100%",padding:"6px 8px",border:`1px solid ${C.border}`,borderRadius:4,fontFamily:"Georgia,serif",fontSize:12,background:C.bg,outline:"none"}}>
+                {NIVEIS.map(n=><option key={n.v} value={n.v}>{n.l}</option>)}
+              </select>
+            </div>
+
+            {/* Progresso */}
+            {(proj => proj.capsOk.length > 0 || proj.capsProx.length > 0)(projeto) && (
+              <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                  <span style={{fontSize:9,fontFamily:"monospace",color:C.textTer,textTransform:"uppercase",letterSpacing:".07em"}}>Progresso</span>
+                  <span style={{fontSize:11,fontWeight:700,color:C.gold,fontFamily:"monospace"}}>{prog}/{total}</span>
+                </div>
+                <div style={{height:4,background:"#ede8df",borderRadius:2,marginBottom:8,overflow:"hidden"}}>
+                  <div style={{height:"100%",background:C.gold,borderRadius:2,width:total>0?`${(prog/total)*100}%`:"0%",transition:"width .4s"}}/>
+                </div>
+                {projeto.capsOk.map((c,i)=>(
+                  <div key={i} style={{fontSize:10,color:"#166534",fontFamily:"monospace",padding:"1px 0",display:"flex",gap:5}}>
+                    <span>✓</span><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.slice(0,36)}</span>
+                  </div>
+                ))}
+                {projeto.capsProx.length > 0 && (
+                  <div style={{marginTop:6}}>
+                    <div style={{fontSize:9,fontFamily:"monospace",color:C.textTer,textTransform:"uppercase",letterSpacing:".05em",marginBottom:4}}>Gerar agora</div>
+                    {projeto.capsProx.map((c,i)=>(
+                      <button key={i} onClick={()=>dispararCapitulo(c)}
+                        style={{display:"flex",alignItems:"flex-start",gap:6,width:"100%",padding:"6px 8px",marginBottom:3,border:`1px solid ${C.border}`,borderRadius:4,cursor:"pointer",textAlign:"left",background:"transparent",color:C.textSec,fontSize:11,fontFamily:"Georgia,serif",lineHeight:1.4,transition:"all .12s"}}
+                        onMouseOver={e=>{e.currentTarget.style.background=`${C.gold}12`;e.currentTarget.style.borderColor=`${C.gold}60`;}}
+                        onMouseOut={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor=C.border;}}>
+                        <span style={{color:C.gold,flexShrink:0,fontWeight:700}}>→</span>
+                        <span>Cap. {c.num} — {c.titulo.slice(0,36)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* BANCO DO HUB — NOVO em v2 */}
+            {(jurCache.length > 0 || bibCache.length > 0) && (
+              <div style={{borderBottom:`1px solid ${C.border}`}}>
+                <div style={{padding:"8px 14px 0",display:"flex",gap:0}}>
+                  {[["jur",`⚖️ ${jurCache.length}`,"#0369a1"],["bib",`📖 ${bibCache.length}`,"#c49a2a"]].map(([id,label,cor])=>(
+                    <button key={id} onClick={()=>setHubSec(id)}
+                      style={{flex:1,padding:"5px 0",border:"none",background:hubSec===id?C.white:"transparent",cursor:"pointer",fontSize:10,fontFamily:"monospace",color:hubSec===id?cor:C.textTer,fontWeight:hubSec===id?700:400,borderBottom:hubSec===id?`2px solid ${cor}`:"2px solid transparent",transition:"all .15s"}}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{maxHeight:140,overflowY:"auto",padding:"6px 8px"}}>
+                  {(hubSec==="jur"?jurCache:bibCache).length === 0 ? (
+                    <div style={{fontSize:10,color:C.textTer,padding:"8px",textAlign:"center"}}>Banco vazio — adicione no JurHub</div>
+                  ) : (hubSec==="jur"?jurCache:bibCache).map((item,i)=>(
+                    <div key={item.id} style={{display:"flex",gap:4,alignItems:"flex-start",marginBottom:4}}>
+                      <div style={{flex:1,fontSize:10,color:C.textSec,lineHeight:1.5,overflow:"hidden"}}>{item.texto.slice(0,70)}{item.texto.length>70?"...":""}</div>
+                      <button onClick={()=>inserirNoBanco(item.texto, `${hubSec}-${i}`)}
+                        style={{padding:"2px 6px",background:inserido===`${hubSec}-${i}`?"#f0fdf4":"transparent",border:`1px solid ${inserido===`${hubSec}-${i}`?"#86efac":C.border}`,borderRadius:3,cursor:"pointer",fontSize:9,fontFamily:"monospace",color:inserido===`${hubSec}-${i}`?"#166534":C.textTer,flexShrink:0,transition:"all .15s"}}>
+                        {inserido===`${hubSec}-${i}`?"✓":"→"}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Ações rápidas */}
+            <div style={{flex:1,overflowY:"auto",padding:"10px 14px"}}>
+              <div style={{fontSize:9,fontFamily:"monospace",color:C.textTer,textTransform:"uppercase",letterSpacing:".07em",marginBottom:6}}>Ações rápidas</div>
+              {ACOES.map((a,i)=>(
+                <button key={i} onClick={()=>enviar(a.p)}
+                  style={{display:"flex",alignItems:"flex-start",gap:7,width:"100%",padding:"7px 9px",marginBottom:4,border:`1px solid ${C.border}`,borderRadius:4,cursor:"pointer",textAlign:"left",background:"transparent",color:C.textSec,fontSize:11,fontFamily:"Georgia,serif",lineHeight:1.4,transition:"all .12s"}}
+                  onMouseOver={e=>{e.currentTarget.style.background=`${C.red}0e`;e.currentTarget.style.borderColor=`${C.red}40`;e.currentTarget.style.color=C.textPri;}}
+                  onMouseOut={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSec;}}>
+                  <span style={{flexShrink:0,marginTop:1}}>{a.ic}</span><span>{a.l}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Rodapé */}
+            <div style={{padding:"10px 14px",borderTop:`1px solid ${C.border}`,background:"#f7f3ec"}}>
+              <button onClick={()=>setModal("projeto")} style={{width:"100%",padding:"8px",background:C.nav,color:"white",border:"none",borderRadius:4,cursor:"pointer",fontSize:11,fontFamily:"monospace",fontWeight:700,letterSpacing:".04em"}}>
+                ⚙️ {projeto.nome?"Editar Projeto":"Configurar Projeto"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ÁREA PRINCIPAL */}
+        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+
+          {/* Painel de upload */}
+          {showUpload && (
+            <div style={{background:C.white,borderBottom:`1px solid ${C.border}`,padding:"14px 20px",flexShrink:0}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                <span style={{fontSize:12,fontWeight:500,color:C.textPri}}>Carregar documento de referência</span>
+                <button onClick={()=>setShowUpload(false)} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,color:C.textTer}}>×</button>
+              </div>
+              <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>
+                {Object.entries(MODOS_DOC).map(([k,m])=>(
+                  <button key={k} onClick={()=>setModoDoc(k)}
+                    style={{padding:"4px 10px",border:`1px solid ${modoDoc===k?m.cor:C.border}`,borderRadius:20,fontSize:10,fontFamily:"monospace",cursor:"pointer",background:modoDoc===k?`${m.cor}12`:"transparent",color:modoDoc===k?m.cor:C.textSec,fontWeight:modoDoc===k?700:400,transition:"all .15s"}}>
+                    {m.icon} {m.label}
+                  </button>
+                ))}
+              </div>
+              <div onDrop={e=>{e.preventDefault();handleFile(e.dataTransfer.files[0]);}} onDragOver={e=>e.preventDefault()}
+                onClick={()=>fileInputRef.current?.click()}
+                style={{border:`2px dashed ${C.border}`,borderRadius:8,padding:"18px",textAlign:"center",cursor:"pointer",background:"#faf8f4",transition:"all .15s"}}
+                onMouseOver={e=>{e.currentTarget.style.borderColor=MODOS_DOC[modoDoc].cor;}}
+                onMouseOut={e=>{e.currentTarget.style.borderColor=C.border;}}>
+                {uploadLoading ? <div style={{fontSize:13,color:C.textSec}}>⏳ Lendo arquivo...</div> : (
+                  <><div style={{fontSize:26,marginBottom:6}}>📄</div><div style={{fontSize:12,color:C.textSec}}>Arraste PDF ou DOCX · ou clique · máx. 30MB</div></>
+                )}
+              </div>
+              <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+              {uploadErr && <div style={{marginTop:8,fontSize:11,color:"#991b1b",fontFamily:"monospace",padding:"6px 10px",background:"#fef2f2",borderRadius:4}}>❌ {uploadErr}</div>}
+            </div>
+          )}
+
+          {/* Chip do doc carregado */}
+          {!showUpload && doc && (
+            <div style={{background:C.white,borderBottom:`1px solid ${C.border}`,padding:"7px 18px",display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+              <span style={{display:"inline-flex",alignItems:"center",gap:6,padding:"3px 10px",background:`${MODOS_DOC[doc.modoKey]?.cor||C.red}12`,border:`1px solid ${MODOS_DOC[doc.modoKey]?.cor||C.red}30`,borderRadius:12,fontSize:11,fontFamily:"monospace",color:MODOS_DOC[doc.modoKey]?.cor||C.red}}>
+                {doc.tipo==="pdf"?"📕":"📝"} {doc.nome.slice(0,28)} · {MODOS_DOC[doc.modoKey]?.icon} {MODOS_DOC[doc.modoKey]?.label}
+                <button onClick={()=>setDoc(null)} style={{background:"none",border:"none",cursor:"pointer",color:"inherit",fontSize:12,padding:"0 0 0 4px"}}>×</button>
+              </span>
+            </div>
+          )}
+
+          {/* Chat */}
+          <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}}>
+            {msgs.length === 0 && (
+              <div style={{maxWidth:580,margin:"40px auto 0",textAlign:"center"}}>
+                <div style={{fontSize:38,marginBottom:10}}>📚</div>
+                <div style={{fontSize:18,fontWeight:700,color:C.textPri,marginBottom:6}}>JurObra v2</div>
+                <div style={{fontSize:13,color:C.textSec,lineHeight:1.7,marginBottom:8}}>
+                  {projeto.nome ? `📖 ${projeto.nome}` : "Configure o projeto para começar"}
+                  {projeto.area && <><br/><span style={{fontSize:12}}>{projeto.area}</span></>}
+                </div>
+                {(jurCache.length > 0 || bibCache.length > 0) && (
+                  <div style={{display:"inline-flex",gap:8,marginBottom:16,padding:"8px 14px",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,fontSize:12,color:"#1e40af"}}>
+                    🔗 Banco do Hub: <strong>{jurCache.length} citações</strong> e <strong>{bibCache.length} referências</strong> prontas para usar
+                  </div>
+                )}
+                {!projeto.nome ? (
+                  <button onClick={()=>setModal("projeto")} style={{marginTop:12,padding:"10px 24px",background:C.nav,color:"white",border:"none",borderRadius:6,cursor:"pointer",fontSize:13,fontFamily:"Georgia,serif",fontWeight:700}}>
+                    ⚙️ Configurar Projeto
+                  </button>
+                ) : (
+                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,textAlign:"left"}}>
+                    {ACOES.slice(0,4).map((a,i)=>(
+                      <button key={i} onClick={()=>enviar(a.p)}
+                        style={{padding:"10px 12px",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer",background:C.white,textAlign:"left",fontSize:12,color:C.textSec,fontFamily:"Georgia,serif",lineHeight:1.4,transition:"all .12s"}}
+                        onMouseOver={e=>{e.currentTarget.style.borderColor=C.gold;e.currentTarget.style.color=C.textPri;}}
+                        onMouseOut={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSec;}}>
+                        {a.ic} {a.l}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {msgs.map((m,i)=>(
+              <div key={i} style={{marginBottom:20,display:"flex",gap:12,justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
+                {m.role==="assistant" && <div style={{width:28,height:28,background:C.red,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0,marginTop:2}}>📚</div>}
+                <div style={{maxWidth:"82%",minWidth:0}}>
+                  {m.docNome && (
+                    <div style={{display:"flex",gap:6,marginBottom:4,justifyContent:"flex-end"}}>
+                      <span style={{fontSize:10,fontFamily:"monospace",padding:"2px 8px",background:`${C.red}15`,border:`1px solid ${C.red}30`,borderRadius:10,color:C.red}}>
+                        📄 {m.docNome?.slice(0,20)} · {m.docModo}
+                      </span>
+                    </div>
+                  )}
+                  <div style={{padding:"12px 16px",borderRadius:m.role==="user"?"16px 4px 16px 16px":"4px 16px 16px 16px",background:m.role==="user"?C.nav:C.white,color:m.role==="user"?"white":C.textPri,border:m.role==="assistant"?`1px solid ${C.border}`:"none",fontSize:13,lineHeight:1.75}}>
+                    {m.role==="assistant" ? <RichText content={m.content}/> : <span style={{fontFamily:"Georgia,serif",fontSize:13}}>{typeof m.content==="string"?m.content:"[documento enviado para análise]"}</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {loading && (
+              <div style={{display:"flex",gap:12,marginBottom:20}}>
+                <div style={{width:28,height:28,background:C.red,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>📚</div>
+                <div style={{padding:"12px 16px",background:C.white,border:`1px solid ${C.border}`,borderRadius:"4px 16px 16px 16px",display:"flex",gap:6,alignItems:"center"}}>
+                  {[0,1,2].map(j=><div key={j} style={{width:7,height:7,borderRadius:"50%",background:C.red,opacity:.5,animation:`bounce 1.2s ease-in-out ${j*.2}s infinite`}}/>)}
+                </div>
+              </div>
+            )}
+            <div ref={bottomRef}/>
+          </div>
+
+          {/* Input */}
+          <div style={{borderTop:`1px solid ${C.border}`,background:C.white,padding:"12px 18px"}}>
+            <div style={{display:"flex",gap:8,alignItems:"flex-end",maxWidth:900,margin:"0 auto"}}>
+              <button onClick={()=>setShowUpload(v=>!v)} title="Carregar PDF ou DOCX"
+                style={{width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${doc?C.red:C.border}`,borderRadius:8,cursor:"pointer",background:doc?`${C.red}12`:C.bg,color:doc?C.red:C.textTer,fontSize:18,flexShrink:0,transition:"all .15s"}}>
+                📎
+              </button>
+              <textarea ref={taRef} value={input} onChange={e=>setInput(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();enviar();}}}
+                placeholder={doc ? `Instrução para análise do documento... (ou envie vazio para análise direta)` : `Descreva o capítulo ou tema... (Enter para enviar)`}
+                rows={1}
+                style={{flex:1,padding:"10px 14px",border:`1px solid ${C.border}`,borderRadius:8,fontFamily:"Georgia,serif",fontSize:13,resize:"none",outline:"none",lineHeight:1.6,overflow:"hidden",background:C.bg,color:C.textPri,transition:"border-color .15s"}}
+                onFocus={e=>e.target.style.borderColor=C.gold}
+                onBlur={e=>e.target.style.borderColor=C.border}/>
+              <button onClick={()=>enviar()} disabled={loading||(!input.trim()&&!doc)}
+                style={{padding:"10px 18px",background:loading||(!input.trim()&&!doc)?"#ccc":C.red,color:"white",border:"none",borderRadius:8,cursor:loading||(!input.trim()&&!doc)?"not-allowed":"pointer",fontSize:16,transition:"background .2s",flexShrink:0,height:40}}>
+                ↑
+              </button>
+            </div>
+            <div style={{fontSize:10,color:C.textTer,textAlign:"center",marginTop:5,fontFamily:"monospace"}}>
+              📎 PDF/DOCX de referência · → inserir do banco · Enter para enviar · ⬇ .docx exporta
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {modal==="projeto" && <ModalProjeto projeto={projeto} onSave={salvarProjeto} onClose={()=>setModal(null)}/>}
+      {modal==="sumario" && <ModalSumario projeto={projeto} onIntegrar={p=>{salvarProjeto(p);setModal(null);}} onClose={()=>setModal(null)}/>}
+
+      <style>{`@keyframes bounce{0%,80%,100%{transform:scale(0.7);opacity:.4}40%{transform:scale(1);opacity:1}}::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#ccc;border-radius:3px}`}</style>
+    </div>
+  );
+}
+
 // ── APP SHELL ─────────────────────────────────────────────────────
 function App(){
   const[hasKey,setHasKey]=useState(!!getKey());
@@ -1329,6 +2119,7 @@ function App(){
 
   const renderTool=()=>{
     if(activeId==='hub')return <HubTool/>;
+    if(activeId==='obra')return <JurObraV2/>;
     if(activeId==='bib')return <BibTool/>;
     if(activeId==='jur')return <JurTool/>;
     if(activeId==='docx')return <JurDocxEngine/>;
