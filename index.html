@@ -499,37 +499,141 @@ function ChatTool({tool}){
   );
 }
 
-// ── HUB TOOL ─────────────────────────────────────────────────────
+// ── HUB TOOL v1 (JurHub integrado) ───────────────────────────────
+// Utilitários de Storage API (window.storage — Claude artifacts)
+async function storageGet(key){
+  try{const r=await window.storage?.get(key);return r?.value?JSON.parse(r.value):null;}
+  catch{return null;}
+}
+async function storageSet(key,val){
+  try{await window.storage?.set(key,JSON.stringify(val));return true;}
+  catch{return false;}
+}
+
+// Chaves de Storage
+const K_PROJ='jura-obra-project-v1';
+const K_JUR='jura-jur-cache';
+const K_BIB='jura-bib-cache';
+const K_CAPS='jura-chapters-cache';
+const PROJ_DEF={nome:'',area:'',autores:'',capsOk:[],capsProx:[]};
+
+// Artefatos do ecossistema
+const ARTEFATOS=[
+  {key:'obra',icon:'📚',label:'JurObra',cor:'#8b1a1a',desc:'Livros · Tratados · Apostilas · Dissertações',badge:'v1',
+    quando:'Quando for escrever ou continuar capítulos de uma obra longa. O projeto e as citações salvas aqui já estarão disponíveis na sidebar.',
+    dica:'Abra o JurObra → o projeto é carregado automaticamente da Storage API → clique no botão do capítulo na sidebar para disparar a geração.'},
+  {key:'peca',icon:'⚖️',label:'JurPeça',cor:'#7c3aed',desc:'Petição · Parecer · Ementa · Contrato',badge:'v2 · docs',
+    quando:'Quando for redigir uma peça avulsa ou analisar um documento. Aceita PDF e DOCX.',
+    dica:'📎 Use o ícone de clipe para carregar a Petição Inicial → selecione o modo Contestação → envie sem digitar nada → a IA lê e redige a defesa completa.'},
+  {key:'jur',icon:'🏛️',label:'JurJurisprudência',cor:'#0369a1',desc:'STF · STJ · TST · Súmulas · busca IA',badge:'v1',
+    quando:'Quando precisar de jurisprudência para fundamentar uma peça ou capítulo. Cole os resultados no Banco de Citações — ficam salvos entre sessões.',
+    dica:'Pesquise → clique Copiar inline → cole no Banco de Citações → o JurObra lê automaticamente.'},
+  {key:'bib',icon:'📖',label:'JurBiblioteca',cor:'#c49a2a',desc:'32 clássicos offline · busca IA doutrina recente',badge:'v1',
+    quando:'Quando precisar de referências doutrinárias. Cole as notas de rodapé no Banco de Referências abaixo.',
+    dica:'Busque → Copiar nota → cole no Banco de Referências → disponível para o JurObra na próxima sessão.'},
+  {key:'docx',icon:'⚙️',label:'JurDocx Engine',cor:'#374151',desc:'Motor ZIP/XML Word · testes de export',badge:'v1',
+    quando:'Para testar o motor de exportação isoladamente ou gerar um .docx a partir de texto avulso.',
+    dica:'Cole qualquer texto markdown jurídico e clique Gerar .docx — útil para validar formatação antes de usar no JurObra.'},
+];
+
 function HubTool(){
-  const[proj,setProj]=useState(ls('je-proj',{nome:'',area:'',autores:'',capsOk:[],capsProx:[]}));
-  const[jurCache,setJurCache]=useState(ls('jura-jur-cache',[]));
-  const[bibCache,setBibCache]=useState(ls('jura-bib-cache',[]));
-  const[exportTexto,setExportTexto]=useState(ls('jura-chapters-cache',''));
-  const[aba,setAba]=useState('dash');
+  const[proj,setProj]=useState(PROJ_DEF);
+  const[jurCache,setJurCache]=useState([]);
+  const[bibCache,setBibCache]=useState([]);
+  const[capsTexto,setCapsTexto]=useState('');
+  const[jurInput,setJurInput]=useState('');
+  const[bibInput,setBibInput]=useState('');
+  const[loading,setLoading]=useState(true);
+  const[saved,setSaved]=useState({});
+  const[exportStatus,setExportStatus]=useState('idle');
+  const[aba,setAba]=useState('dashboard');
+  const[artInfo,setArtInfo]=useState(null);
   const[editProj,setEditProj]=useState(false);
-  const[pEdit,setPEdit]=useState({nome:'',area:'',autores:'',capsOkTxt:'',capsProxTxt:''});
-  const[jurIn,setJurIn]=useState('');const[bibIn,setBibIn]=useState('');
-  const[notif,setNotif]=useState('');
-  const[exportSt,setExportSt]=useState('idle');
+  const[projEdit,setProjEdit]=useState(PROJ_DEF);
+  const[copiedJur,setCopiedJur]=useState(null);
+  const[copiedBib,setCopiedBib]=useState(null);
 
-  const showNotif=msg=>{setNotif(msg);setTimeout(()=>setNotif(''),2500);};
-  const saveProjeto=()=>{
-    const capsOk=pEdit.capsOkTxt.split('\n').map(l=>l.trim()).filter(Boolean);
-    const capsProx=pEdit.capsProxTxt.split('\n').map(l=>{const[n,...r]=l.trim().split('|');return n&&r.length?{num:n.trim(),titulo:r.join('|').trim()}:null;}).filter(Boolean);
-    const p={nome:pEdit.nome||'Projeto',area:pEdit.area,autores:pEdit.autores,capsOk,capsProx};
-    setProj(p);lsSet('je-proj',p);setEditProj(false);showNotif('✅ Projeto salvo');
+  // Carregar tudo da Storage API (com fallback para localStorage legado)
+  useEffect(()=>{
+    (async()=>{
+      const[p,j,b,c]=await Promise.all([
+        storageGet(K_PROJ),storageGet(K_JUR),storageGet(K_BIB),storageGet(K_CAPS)
+      ]);
+      // Fallback: tenta localStorage se Storage API não tiver dados
+      const projFallback=p||ls('je-proj',null);
+      const jurFallback=j||ls('jura-jur-cache',[]);
+      const bibFallback=b||ls('jura-bib-cache',[]);
+      const capsFallback=c||(typeof ls('jura-chapters-cache','') === 'string' ? ls('jura-chapters-cache','') : '');
+      if(projFallback)setProj(projFallback);
+      if(jurFallback)setJurCache(Array.isArray(jurFallback)?jurFallback:[]);
+      if(bibFallback)setBibCache(Array.isArray(bibFallback)?bibFallback:[]);
+      if(capsFallback)setCapsTexto(typeof capsFallback==='string'?capsFallback:'');
+      setLoading(false);
+    })();
+  },[]);
+
+  const salvarProj=async(p)=>{
+    setProj(p);setEditProj(false);
+    lsSet('je-proj',p);// legado
+    const ok=await storageSet(K_PROJ,p);
+    setSaved(s=>({...s,proj:ok?'ok':'err'}));
+    setTimeout(()=>setSaved(s=>({...s,proj:null})),3000);
   };
-  const addJur=()=>{if(!jurIn.trim())return;const n=[...jurCache,{id:Date.now(),texto:jurIn.trim()}];setJurCache(n);lsSet('jura-jur-cache',n);setJurIn('');showNotif('✅ Citação salva');};
-  const addBib=()=>{if(!bibIn.trim())return;const n=[...bibCache,{id:Date.now(),texto:bibIn.trim()}];setBibCache(n);lsSet('jura-bib-cache',n);setBibIn('');showNotif('✅ Referência salva');};
-  const delJur=id=>{const n=jurCache.filter(x=>x.id!==id);setJurCache(n);lsSet('jura-jur-cache',n);};
-  const delBib=id=>{const n=bibCache.filter(x=>x.id!==id);setBibCache(n);lsSet('jura-bib-cache',n);};
 
-  const exportarObra=()=>{
-    if(!exportTexto.trim())return;
-    setExportSt('loading');
+  const adicionarJur=async()=>{
+    const txt=jurInput.trim();if(!txt)return;
+    const nova=[...jurCache,{id:Date.now(),texto:txt,ts:new Date().toLocaleDateString('pt-BR')}];
+    setJurCache(nova);setJurInput('');
+    lsSet('jura-jur-cache',nova);// legado
+    await storageSet(K_JUR,nova);
+    setSaved(s=>({...s,jur:'ok'}));setTimeout(()=>setSaved(s=>({...s,jur:null})),2500);
+  };
+
+  const removerJur=async(id)=>{
+    const nova=jurCache.filter(x=>x.id!==id);setJurCache(nova);
+    lsSet('jura-jur-cache',nova);
+    await storageSet(K_JUR,nova);
+  };
+
+  const adicionarBib=async()=>{
+    const txt=bibInput.trim();if(!txt)return;
+    const nova=[...bibCache,{id:Date.now(),texto:txt,ts:new Date().toLocaleDateString('pt-BR')}];
+    setBibCache(nova);setBibInput('');
+    lsSet('jura-bib-cache',nova);// legado
+    await storageSet(K_BIB,nova);
+    setSaved(s=>({...s,bib:'ok'}));setTimeout(()=>setSaved(s=>({...s,bib:null})),2500);
+  };
+
+  const removerBib=async(id)=>{
+    const nova=bibCache.filter(x=>x.id!==id);setBibCache(nova);
+    lsSet('jura-bib-cache',nova);
+    await storageSet(K_BIB,nova);
+  };
+
+  const salvarCaps=useCallback(async(txt)=>{
+    setCapsTexto(txt);
+    lsSet('jura-chapters-cache',txt);// legado
+    await storageSet(K_CAPS,txt);
+  },[]);
+
+  const copiarTodosJur=()=>{
+    const txt=jurCache.map(j=>j.texto).join('\n\n');
+    navigator.clipboard?.writeText(txt);
+    setCopiedJur('all');setTimeout(()=>setCopiedJur(null),2500);
+  };
+
+  const copiarTodosBib=()=>{
+    const txt=bibCache.map(b=>b.texto).join('\n');
+    navigator.clipboard?.writeText(txt);
+    setCopiedBib('all');setTimeout(()=>setCopiedBib(null),2500);
+  };
+
+  const exportarObra=async()=>{
+    if(!capsTexto.trim())return;
+    setExportStatus('loading');
     setTimeout(()=>{
       try{
-        const lines=exportTexto.split('\n');const noteIdx=lines.findIndex(l=>/^②?\s*NOTAS?\s*DE\s*RODAP/i.test(l.trim()));
+        const lines=capsTexto.split('\n');const noteIdx=lines.findIndex(l=>/^②?\s*NOTAS?\s*DE\s*RODAP/i.test(l.trim()));
         const bodyLines=noteIdx>-1?lines.slice(0,noteIdx):lines;const fm={};
         const paras=[eP(),eP(),eP()];
         if(proj.area)paras.push(wP([{t:proj.area,b:false,i:true,sup:false}],{c:true,pt:11,sa:60,lv:240}));
@@ -555,143 +659,328 @@ function HubTool(){
         const fnE=Object.entries(fm).sort((a,b)=>Number(a[0])-Number(b[0]));
         const slug=(proj.nome||'JurObra').replace(/[^a-zA-Z0-9]/g,'_').slice(0,30);
         docxDownload(paras,(proj.nome||'Obra').slice(0,80),fnE,slug+'_COMPLETO_'+new Date().toISOString().slice(0,10)+'.docx');
-        setExportSt('done');setTimeout(()=>setExportSt('idle'),5000);
-      }catch(e){console.error(e);setExportSt('error');setTimeout(()=>setExportSt('idle'),3000);}
+        setExportStatus('done');setTimeout(()=>setExportStatus('idle'),6000);
+      }catch(e){console.error(e);setExportStatus('error');setTimeout(()=>setExportStatus('idle'),4000);}
     },50);
   };
 
   const prog=proj.capsOk.length,total=proj.capsOk.length+proj.capsProx.length;
-  const C={bg:'#f5f4f1',white:'white',nav:'#12192e',gold:'#c49a2a',border:'#ddd9d0',textPri:'#111',textSec:'#555',textTer:'#999'};
-  const inp={width:'100%',padding:'8px 12px',border:`1px solid ${C.border}`,borderRadius:4,fontFamily:'Georgia,serif',fontSize:13,background:C.white,outline:'none'};
+  const C={bg:'#f5f4f1',white:'white',nav:'#12192e',gold:'#c49a2a',border:'#ddd9d0',textPri:'#111',textSec:'#555',textTer:'#999',green:'#166534'};
+  const inp={width:'100%',padding:'8px 12px',border:`1px solid ${C.border}`,borderRadius:4,fontFamily:'Georgia,serif',fontSize:13,color:C.textPri,background:C.white,outline:'none',boxSizing:'border-box'};
+  const lbl={fontSize:9,fontFamily:'monospace',textTransform:'uppercase',letterSpacing:'.07em',color:C.textTer,display:'block',marginBottom:5};
+  const btn=(cor='#374151')=>({padding:'6px 16px',background:cor,color:'white',border:'none',borderRadius:4,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:700,transition:'opacity .15s'});
+
+  if(loading)return(
+    <div style={{height:'100%',display:'flex',alignItems:'center',justifyContent:'center',background:C.bg}}>
+      <div style={{textAlign:'center'}}>
+        <div style={{fontSize:32,marginBottom:12}}>⚖️</div>
+        <div style={{fontSize:13,color:C.textSec,fontFamily:'monospace'}}>carregando estado do projeto...</div>
+      </div>
+    </div>
+  );
 
   return(
     <div style={{height:'100%',display:'flex',flexDirection:'column',background:C.bg,overflow:'hidden'}}>
-      <div style={{background:C.nav,padding:'0 20px',display:'flex',alignItems:'center',gap:12,height:48,flexShrink:0}}>
+
+      {/* TOP BAR */}
+      <div style={{background:C.nav,padding:'0 24px',display:'flex',alignItems:'center',gap:12,height:52,flexShrink:0,borderBottom:'1px solid #0a1020'}}>
         <span style={{color:C.gold,fontFamily:'monospace',fontWeight:700,fontSize:13,letterSpacing:'.1em'}}>JURHUB</span>
-        <span style={{background:`${C.gold}25`,border:`1px solid ${C.gold}55`,color:C.gold,fontSize:9,padding:'2px 8px',borderRadius:2,fontFamily:'monospace'}}>Centro de Controle</span>
-        <div style={{display:'flex',gap:0,marginLeft:16}}>
-          {[['dash','📊 Dashboard'],['bancos','🏦 Bancos'],['export','📄 Export']].map(([id,label])=>(
-            <button key={id} onClick={()=>setAba(id)} style={{padding:'0 14px',height:48,border:'none',background:'transparent',color:aba===id?C.gold:'rgba(255,255,255,.45)',cursor:'pointer',fontSize:11,fontFamily:'monospace',textTransform:'uppercase',letterSpacing:'.05em',borderBottom:aba===id?`2px solid ${C.gold}`:'2px solid transparent'}}>{label}</button>
+        <span style={{background:`${C.gold}20`,border:`1px solid ${C.gold}40`,color:C.gold,fontSize:9,padding:'2px 8px',borderRadius:2,fontFamily:'monospace'}}>v1 · centro de controle</span>
+        <div style={{marginLeft:'auto',display:'flex',gap:6}}>
+          {['dashboard','bancos','export','artefatos'].map(id=>(
+            <button key={id} onClick={()=>setAba(id)} style={{padding:'6px 14px',background:aba===id?'rgba(196,154,42,.2)':'transparent',color:aba===id?C.gold:'rgba(255,255,255,.45)',border:'none',borderRadius:4,cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.05em',textTransform:'uppercase',transition:'all .15s'}}>
+              {id}
+            </button>
           ))}
         </div>
-        <div style={{marginLeft:'auto'}}>
-          <button onClick={()=>{setPEdit({nome:proj.nome,area:proj.area,autores:proj.autores,capsOkTxt:proj.capsOk.join('\n'),capsProxTxt:proj.capsProx.map(c=>`${c.num}|${c.titulo}`).join('\n')});setEditProj(true);}} style={{padding:'5px 14px',background:'rgba(255,255,255,.08)',color:'rgba(255,255,255,.6)',border:'1px solid rgba(255,255,255,.12)',borderRadius:3,fontSize:11,fontFamily:'monospace',cursor:'pointer'}}>⚙️ Projeto</button>
-        </div>
+        <button onClick={()=>{setProjEdit({...proj});setEditProj(true);}} style={{padding:'5px 12px',background:'rgba(255,255,255,.08)',color:'rgba(255,255,255,.55)',border:'1px solid rgba(255,255,255,.12)',borderRadius:3,fontSize:11,fontFamily:'monospace',cursor:'pointer'}}>✏️ Projeto</button>
       </div>
-      <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
-        {aba==='dash'&&(
-          <div>
-            <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:16}}>
-              {[[prog,'Capítulos ✓','#166534'],[total>0?Math.round(prog/total*100)+'%':'—','Progresso','#c49a2a'],[jurCache.length,'Citações','#0369a1'],[bibCache.length,'Referências','#92400e']].map(([v,l,cor],i)=>(
-                <div key={i} style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:14,textAlign:'center'}}>
-                  <div style={{fontSize:26,fontWeight:700,color:cor,lineHeight:1}}>{v}</div>
-                  <div style={{fontSize:11,color:C.textSec,marginTop:4,fontFamily:'monospace'}}>{l}</div>
+
+      <div style={{flex:1,overflowY:'auto',padding:'20px 24px'}}>
+
+        {/* ── ABA DASHBOARD ── */}
+        {aba==='dashboard'&&(
+          <>
+            {/* Projeto */}
+            <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden',marginBottom:16}}>
+              <div style={{background:'#f0ebe0',borderBottom:`1px solid ${C.border}`,padding:'10px 20px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div>
+                  <span style={{fontSize:10,fontFamily:'monospace',color:C.textTer,textTransform:'uppercase',letterSpacing:'.07em'}}>Projeto ativo</span>
+                  {saved.proj==='ok'&&<span style={{marginLeft:8,fontSize:10,color:C.green,fontFamily:'monospace'}}>● salvo</span>}
                 </div>
-              ))}
-            </div>
-            {proj.nome?(
-              <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:20,marginBottom:14}}>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>
+                <button onClick={()=>{setProjEdit({...proj});setEditProj(true);}} style={{...btn(C.nav),padding:'5px 14px'}}>✏️ Editar projeto</button>
+              </div>
+              {!proj.nome?(
+                <div style={{padding:'32px 20px',textAlign:'center'}}>
+                  <div style={{fontSize:32,marginBottom:10}}>📚</div>
+                  <div style={{fontSize:14,color:C.textSec,marginBottom:16}}>Nenhum projeto configurado ainda.</div>
+                  <button onClick={()=>{setProjEdit({...PROJ_DEF});setEditProj(true);}} style={{...btn(C.nav),padding:'10px 24px',fontSize:13}}>⚙️ Configurar primeiro projeto</button>
+                </div>
+              ):(
+                <div style={{padding:'20px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>
                   <div>
                     <div style={{fontSize:11,color:C.textTer,fontFamily:'monospace',marginBottom:4}}>OBRA</div>
-                    <div style={{fontSize:18,fontWeight:700,marginBottom:6}}>{proj.nome}</div>
-                    {proj.area&&<div style={{fontSize:12,color:C.textSec,marginBottom:2}}>📍 {proj.area}</div>}
+                    <div style={{fontSize:20,fontWeight:700,color:C.textPri,lineHeight:1.2,marginBottom:6}}>{proj.nome}</div>
+                    {proj.area&&<div style={{fontSize:12,color:C.textSec,marginBottom:3}}>📍 {proj.area}</div>}
                     {proj.autores&&<div style={{fontSize:12,color:C.textSec}}>✍️ {proj.autores}</div>}
                   </div>
                   <div>
-                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:5}}><span style={{fontSize:10,fontFamily:'monospace',color:C.textTer,textTransform:'uppercase'}}>Progresso</span><span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:'monospace'}}>{prog}/{total}</span></div>
-                    <div style={{height:6,background:'#ede8df',borderRadius:3,marginBottom:10,overflow:'hidden'}}><div style={{height:'100%',background:C.gold,borderRadius:3,width:total>0?`${(prog/total)*100}%`:'0%',transition:'width .5s'}}/></div>
-                    {proj.capsOk.map((c,i)=><div key={i} style={{fontSize:11,color:'#166534',fontFamily:'monospace',padding:'1px 0'}}>✓ {c.slice(0,50)}</div>)}
-                    {proj.capsProx.slice(0,5).map((c,i)=><div key={i} style={{fontSize:11,color:C.textTer,fontFamily:'monospace',padding:'1px 0'}}>→ Cap. {c.num} — {c.titulo.slice(0,36)}</div>)}
+                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
+                      <span style={{fontSize:10,fontFamily:'monospace',color:C.textTer,textTransform:'uppercase'}}>Progresso</span>
+                      <span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:'monospace'}}>{prog}/{total} capítulos</span>
+                    </div>
+                    <div style={{height:8,background:'#ede8df',borderRadius:4,marginBottom:12,overflow:'hidden'}}>
+                      <div style={{height:'100%',background:C.gold,borderRadius:4,width:total>0?`${(prog/total)*100}%`:'0%',transition:'width .5s'}}/>
+                    </div>
+                    {proj.capsOk.map((c,i)=>(
+                      <div key={i} style={{fontSize:11,color:C.green,fontFamily:'monospace',padding:'2px 0',display:'flex',gap:6}}>
+                        <span>✓</span><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.slice(0,50)}</span>
+                      </div>
+                    ))}
+                    {proj.capsProx.length>0&&(
+                      <div style={{marginTop:6}}>
+                        <div style={{fontSize:10,fontFamily:'monospace',color:C.textTer,marginBottom:4,textTransform:'uppercase',letterSpacing:'.05em'}}>Próximos</div>
+                        {proj.capsProx.map((c,i)=>(
+                          <div key={i} style={{fontSize:11,color:C.textSec,fontFamily:'monospace',padding:'2px 0',display:'flex',gap:6}}>
+                            <span style={{color:C.gold}}>→</span><span>Cap. {c.num} — {c.titulo.slice(0,40)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
+              )}
+            </div>
+
+            {/* Status dos bancos */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12,marginBottom:16}}>
+              {[
+                {label:'Citações salvas',count:jurCache.length,icon:'⚖️',cor:'#0369a1'},
+                {label:'Referências salvas',count:bibCache.length,icon:'📖',cor:'#c49a2a'},
+                {label:'Palavras no export',count:capsTexto.split(/\s+/).filter(Boolean).length,icon:'📄',cor:'#374151'},
+              ].map(({label,count,icon,cor})=>(
+                <div key={label} onClick={()=>setAba(label.includes('export')?'export':'bancos')} style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:'16px',cursor:'pointer',transition:'border-color .15s'}}
+                  onMouseOver={e=>e.currentTarget.style.borderColor=cor} onMouseOut={e=>e.currentTarget.style.borderColor=C.border}>
+                  <div style={{fontSize:22,marginBottom:6}}>{icon}</div>
+                  <div style={{fontSize:28,fontWeight:700,color:C.textPri,lineHeight:1}}>{count.toLocaleString('pt-BR')}</div>
+                  <div style={{fontSize:11,color:C.textSec,marginTop:4,fontFamily:'monospace'}}>{label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Fluxo */}
+            <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:'16px 20px'}}>
+              <div style={{fontSize:10,fontFamily:'monospace',color:C.textTer,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:12}}>Fluxo de trabalho recomendado</div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8}}>
+                {['1 Configure o projeto aqui → salvo automaticamente','2 Pesquise no JurJurisprudência → cole as citações em Bancos','3 Abra o JurObra → capítulos e citações já carregados','4 Cole os textos gerados em Export → baixe a obra completa'].map((s,i)=>(
+                  <div key={i} style={{padding:'10px 12px',background:'#f7f3ec',borderRadius:6,fontSize:11,color:C.textSec,lineHeight:1.6}}>
+                    <strong style={{color:C.nav,display:'block',marginBottom:4,fontFamily:'monospace'}}>Passo {i+1}</strong>
+                    {s.slice(2)}
+                  </div>
+                ))}
               </div>
-            ):(
-              <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:32,textAlign:'center',marginBottom:14}}>
-                <div style={{fontSize:28,marginBottom:10}}>📚</div>
-                <div style={{fontSize:13,color:C.textSec,marginBottom:16}}>Nenhum projeto configurado</div>
-                <button onClick={()=>{setPEdit({nome:'',area:'',autores:'',capsOkTxt:'',capsProxTxt:''});setEditProj(true);}} style={{padding:'10px 24px',background:C.nav,color:'white',border:'none',borderRadius:6,cursor:'pointer',fontSize:13,fontFamily:'Georgia,serif',fontWeight:700}}>⚙️ Configurar Projeto</button>
-              </div>
-            )}
-          </div>
+            </div>
+          </>
         )}
+
+        {/* ── ABA BANCOS ── */}
         {aba==='bancos'&&(
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+
+            {/* Banco de Citações */}
             <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
-              <div style={{padding:'10px 16px',background:'#eff6ff',borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:11,fontWeight:700,color:'#1d4ed8'}}>⚖️ Citações Jurisprudenciais — {jurCache.length}</span></div>
-              <div style={{padding:12}}>
-                <textarea value={jurIn} onChange={e=>setJurIn(e.target.value)} placeholder="Cole citação do JurJurisprudência..." style={{...inp,minHeight:70,resize:'vertical',lineHeight:1.6,fontSize:12}}/>
-                <button onClick={addJur} disabled={!jurIn.trim()} style={{width:'100%',marginTop:8,padding:'7px',background:'#1d4ed8',color:'white',border:'none',borderRadius:4,cursor:'pointer',fontSize:12,fontFamily:'monospace',opacity:jurIn.trim()?1:.4}}>+ Adicionar</button>
+              <div style={{background:'#eff6ff',borderBottom:`1px solid ${C.border}`,padding:'10px 16px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div>
+                  <span style={{fontSize:11,fontWeight:700,color:'#0369a1'}}>⚖️ Banco de Citações</span>
+                  <span style={{fontSize:10,fontFamily:'monospace',color:'#0369a1',marginLeft:8}}>{jurCache.length} salvas</span>
+                  {saved.jur==='ok'&&<span style={{fontSize:10,color:C.green,fontFamily:'monospace',marginLeft:8}}>● salvo</span>}
+                </div>
+                {jurCache.length>0&&(
+                  <button onClick={copiarTodosJur} style={{...btn('#0369a1'),padding:'4px 12px',fontSize:10}}>
+                    {copiedJur==='all'?'✅ copiado!':'📋 Copiar todas'}
+                  </button>
+                )}
               </div>
-              <div style={{borderTop:`1px solid ${C.border}`,maxHeight:280,overflowY:'auto'}}>
-                {jurCache.length===0?<div style={{padding:20,textAlign:'center',color:C.textTer,fontSize:12}}>Nenhuma citação</div>:jurCache.map((j,i)=>(
-                  <div key={j.id} style={{padding:'8px 12px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:8}}>
+              <div style={{padding:'14px'}}>
+                <div style={{fontSize:10,fontFamily:'monospace',color:C.textTer,marginBottom:6,lineHeight:1.6}}>
+                  Cole aqui citações do <strong>JurJurisprudência</strong>. Ficam salvas entre sessões e são lidas pelo JurObra.
+                </div>
+                <textarea value={jurInput} onChange={e=>setJurInput(e.target.value)}
+                  placeholder={'Cole a citação inline ou nota de rodapé...\nEx: o STJ, REsp 1.864.382/SP, Rel. Min. Nancy Andrighi, 3ª T., j. 15.06.2021, decidiu que...'}
+                  style={{...inp,minHeight:80,resize:'vertical',lineHeight:1.6,fontSize:12}}/>
+                <button onClick={adicionarJur} disabled={!jurInput.trim()} style={{...btn('#0369a1'),marginTop:8,width:'100%',opacity:jurInput.trim()?1:.4}}>+ Adicionar citação</button>
+              </div>
+              <div style={{borderTop:`1px solid ${C.border}`,maxHeight:320,overflowY:'auto'}}>
+                {jurCache.length===0?(
+                  <div style={{padding:'24px',textAlign:'center',color:C.textTer,fontSize:12}}>Nenhuma citação salva ainda</div>
+                ):jurCache.map((j,i)=>(
+                  <div key={j.id} style={{padding:'10px 14px',borderBottom:i<jurCache.length-1?`1px solid ${C.border}`:'none',display:'flex',gap:8,alignItems:'flex-start'}}>
                     <span style={{fontSize:10,fontFamily:'monospace',color:C.textTer,flexShrink:0,marginTop:2}}>{i+1}.</span>
-                    <div style={{flex:1,fontSize:11,color:C.textSec,lineHeight:1.5}}>{j.texto}</div>
-                    <div style={{display:'flex',gap:3,flexShrink:0}}>
-                      <button onClick={()=>{navigator.clipboard?.writeText(j.texto);showNotif('📋 Copiado!');}} style={{padding:'2px 6px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:3,cursor:'pointer',fontSize:9,fontFamily:'monospace',color:C.textTer}}>📋</button>
-                      <button onClick={()=>delJur(j.id)} style={{padding:'2px 6px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:3,cursor:'pointer',fontSize:9,color:'#991b1b'}}>×</button>
+                    <div style={{flex:1,fontSize:12,color:C.textSec,lineHeight:1.6}}>{j.texto}</div>
+                    <div style={{display:'flex',gap:4,flexShrink:0}}>
+                      <button onClick={()=>{navigator.clipboard?.writeText(j.texto);setCopiedJur(j.id);setTimeout(()=>setCopiedJur(null),2000);}}
+                        style={{padding:'3px 8px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:10,fontFamily:'monospace',color:C.textSec}}>
+                        {copiedJur===j.id?'✅':'📋'}
+                      </button>
+                      <button onClick={()=>removerJur(j.id)} style={{padding:'3px 8px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:10,color:'#991b1b'}}>×</button>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
+
+            {/* Banco de Referências */}
             <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
-              <div style={{padding:'10px 16px',background:'#fffbeb',borderBottom:`1px solid ${C.border}`}}><span style={{fontSize:11,fontWeight:700,color:'#92400e'}}>📖 Referências ABNT — {bibCache.length}</span></div>
-              <div style={{padding:12}}>
-                <textarea value={bibIn} onChange={e=>setBibIn(e.target.value)} placeholder="Cole nota ABNT do JurBiblioteca..." style={{...inp,minHeight:70,resize:'vertical',lineHeight:1.6,fontSize:12}}/>
-                <button onClick={addBib} disabled={!bibIn.trim()} style={{width:'100%',marginTop:8,padding:'7px',background:'#92400e',color:'white',border:'none',borderRadius:4,cursor:'pointer',fontSize:12,fontFamily:'monospace',opacity:bibIn.trim()?1:.4}}>+ Adicionar</button>
+              <div style={{background:'#fffbeb',borderBottom:`1px solid ${C.border}`,padding:'10px 16px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div>
+                  <span style={{fontSize:11,fontWeight:700,color:'#92400e'}}>📖 Banco de Referências</span>
+                  <span style={{fontSize:10,fontFamily:'monospace',color:'#92400e',marginLeft:8}}>{bibCache.length} salvas</span>
+                  {saved.bib==='ok'&&<span style={{fontSize:10,color:C.green,fontFamily:'monospace',marginLeft:8}}>● salvo</span>}
+                </div>
+                {bibCache.length>0&&(
+                  <button onClick={copiarTodosBib} style={{...btn('#92400e'),padding:'4px 12px',fontSize:10}}>
+                    {copiedBib==='all'?'✅ copiado!':'📋 Copiar todas'}
+                  </button>
+                )}
               </div>
-              <div style={{borderTop:`1px solid ${C.border}`,maxHeight:280,overflowY:'auto'}}>
-                {bibCache.length===0?<div style={{padding:20,textAlign:'center',color:C.textTer,fontSize:12}}>Nenhuma referência</div>:bibCache.map((b,i)=>(
-                  <div key={b.id} style={{padding:'8px 12px',borderBottom:`1px solid ${C.border}`,display:'flex',gap:8}}>
+              <div style={{padding:'14px'}}>
+                <div style={{fontSize:10,fontFamily:'monospace',color:C.textTer,marginBottom:6,lineHeight:1.6}}>
+                  Cole aqui notas do <strong>JurBiblioteca</strong>. Ficam salvas e são lidas pelo JurObra.
+                </div>
+                <textarea value={bibInput} onChange={e=>setBibInput(e.target.value)}
+                  placeholder={'Cole referência ABNT ou nota de rodapé...\nEx: ¹ DIDIER JR., Fredie, Curso de Direito Processual Civil, v. I, 25. ed., Salvador, JusPodivm, 2024, p. 189.'}
+                  style={{...inp,minHeight:80,resize:'vertical',lineHeight:1.6,fontSize:12}}/>
+                <button onClick={adicionarBib} disabled={!bibInput.trim()} style={{...btn('#92400e'),marginTop:8,width:'100%',opacity:bibInput.trim()?1:.4}}>+ Adicionar referência</button>
+              </div>
+              <div style={{borderTop:`1px solid ${C.border}`,maxHeight:320,overflowY:'auto'}}>
+                {bibCache.length===0?(
+                  <div style={{padding:'24px',textAlign:'center',color:C.textTer,fontSize:12}}>Nenhuma referência salva ainda</div>
+                ):bibCache.map((b,i)=>(
+                  <div key={b.id} style={{padding:'10px 14px',borderBottom:i<bibCache.length-1?`1px solid ${C.border}`:'none',display:'flex',gap:8,alignItems:'flex-start'}}>
                     <span style={{fontSize:10,fontFamily:'monospace',color:C.textTer,flexShrink:0,marginTop:2}}>{i+1}.</span>
-                    <div style={{flex:1,fontSize:11,color:C.textSec,lineHeight:1.5,fontFamily:'monospace'}}>{b.texto}</div>
-                    <div style={{display:'flex',gap:3,flexShrink:0}}>
-                      <button onClick={()=>{navigator.clipboard?.writeText(b.texto);showNotif('📋 Copiado!');}} style={{padding:'2px 6px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:3,cursor:'pointer',fontSize:9,fontFamily:'monospace',color:C.textTer}}>📋</button>
-                      <button onClick={()=>delBib(b.id)} style={{padding:'2px 6px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:3,cursor:'pointer',fontSize:9,color:'#991b1b'}}>×</button>
+                    <div style={{flex:1,fontSize:12,color:C.textSec,lineHeight:1.6,fontFamily:'monospace'}}>{b.texto}</div>
+                    <div style={{display:'flex',gap:4,flexShrink:0}}>
+                      <button onClick={()=>{navigator.clipboard?.writeText(b.texto);setCopiedBib(b.id);setTimeout(()=>setCopiedBib(null),2000);}}
+                        style={{padding:'3px 8px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:10,fontFamily:'monospace',color:C.textSec}}>
+                        {copiedBib===b.id?'✅':'📋'}
+                      </button>
+                      <button onClick={()=>removerBib(b.id)} style={{padding:'3px 8px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:10,color:'#991b1b'}}>×</button>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
+
           </div>
         )}
+
+        {/* ── ABA EXPORT ── */}
         {aba==='export'&&(
           <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
-            <div style={{padding:'10px 20px',background:'#f0ebe0',borderBottom:`1px solid ${C.border}`,display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-              <span style={{fontSize:11,fontWeight:700,color:C.nav}}>📄 Export completo da obra — {exportTexto.split(/\s+/).filter(Boolean).length.toLocaleString('pt-BR')} palavras</span>
-              <button onClick={exportarObra} disabled={exportSt==='loading'||!exportTexto.trim()} style={{padding:'7px 20px',background:exportSt==='done'?'#166534':C.nav,color:'white',border:'none',borderRadius:4,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:700,opacity:!exportTexto.trim()?.4:1}}>{exportSt==='loading'?'⏳ gerando...':exportSt==='done'?'✅ baixado!':'⬇ Exportar .docx'}</button>
+            <div style={{background:'#f0ebe0',borderBottom:`1px solid ${C.border}`,padding:'10px 20px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <div>
+                <span style={{fontSize:11,fontWeight:700,color:C.nav}}>📄 Export completo da obra</span>
+                <span style={{fontSize:10,fontFamily:'monospace',color:C.textTer,marginLeft:10}}>
+                  {capsTexto.split(/\s+/).filter(Boolean).length.toLocaleString('pt-BR')} palavras
+                </span>
+              </div>
+              <button onClick={exportarObra} disabled={exportStatus==='loading'||!capsTexto.trim()}
+                style={{...btn(exportStatus==='done'?C.green:exportStatus==='error'?'#991b1b':C.nav),padding:'7px 20px',opacity:!capsTexto.trim()?.4:1}}>
+                {exportStatus==='loading'?'⏳ gerando...':exportStatus==='done'?'✅ baixado!':exportStatus==='error'?'❌ erro':'⬇ Exportar obra completa'}
+              </button>
             </div>
-            <div style={{padding:'14px 20px'}}>
-              <div style={{marginBottom:10,padding:'10px 14px',background:'#f7f3ec',borderRadius:6,borderLeft:`3px solid ${C.gold}`,fontSize:12,color:C.textSec,lineHeight:1.7}}>Cole aqui todos os capítulos do <strong>JurObra</strong> em ordem. Gera .docx com capa + sumário + corpo + footnotes.</div>
-              <textarea value={exportTexto} onChange={e=>{setExportTexto(e.target.value);lsSet('jura-chapters-cache',e.target.value);}} placeholder="Cole os capítulos aqui..." style={{...inp,minHeight:360,resize:'vertical',lineHeight:1.75,fontSize:12,fontFamily:'Georgia,serif'}}/>
+            <div style={{padding:'16px 20px'}}>
+              <div style={{fontSize:11,color:C.textSec,lineHeight:1.7,marginBottom:12,padding:'10px 14px',background:'#f7f3ec',borderRadius:6,borderLeft:`3px solid ${C.gold}`}}>
+                <strong style={{color:C.textPri}}>Como usar:</strong> Cole aqui todos os capítulos gerados pelo JurObra, em ordem. O Hub gera um único .docx com
+                <strong style={{color:C.textPri}}> capa + sumário (com ✓ nos capítulos concluídos) + corpo completo + footnotes reais</strong>.
+                Os dados do projeto ({proj.nome||'configure o projeto primeiro'}) são usados na capa automaticamente.
+              </div>
+              <textarea value={capsTexto} onChange={e=>salvarCaps(e.target.value)}
+                placeholder={'Cole aqui os capítulos em ordem — gerados pelo JurObra:\n\nCapítulo I\n\nA JURISDIÇÃO E SEUS FUNDAMENTOS\n\n[...texto do capítulo...]\n\n② NOTAS DE RODAPÉ\n¹ Nota...\n\n---\n\nCapítulo II\n\n[...texto do segundo capítulo...]'}
+                style={{...inp,minHeight:420,resize:'vertical',lineHeight:1.75,fontSize:12,fontFamily:'Georgia,serif'}}/>
+              <div style={{display:'flex',gap:8,marginTop:10}}>
+                <button onClick={()=>salvarCaps('')} style={{padding:'6px 14px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:11,fontFamily:'monospace',color:C.textTer}}>🗑 Limpar</button>
+                <div style={{flex:1}}/>
+                <div style={{fontSize:11,fontFamily:'monospace',color:C.textTer,display:'flex',alignItems:'center'}}>auto-salvo · permanece entre sessões</div>
+              </div>
             </div>
           </div>
         )}
+
+        {/* ── ABA ARTEFATOS ── */}
+        {aba==='artefatos'&&(
+          <div>
+            <div style={{fontSize:13,color:C.textSec,lineHeight:1.7,marginBottom:16}}>
+              Guia de uso de cada artefato — quando abrir cada um e como integrá-los.
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              {ARTEFATOS.map(a=>(
+                <div key={a.key} onClick={()=>setArtInfo(artInfo?.key===a.key?null:a)}
+                  style={{background:C.white,border:`1.5px solid ${artInfo?.key===a.key?a.cor:C.border}`,borderRadius:8,padding:'16px',cursor:'pointer',transition:'all .15s'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+                    <div style={{width:36,height:36,background:`${a.cor}15`,borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>{a.icon}</div>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:C.textPri}}>{a.label}</div>
+                      <div style={{fontSize:10,fontFamily:'monospace',color:a.cor}}>{a.badge}</div>
+                    </div>
+                  </div>
+                  <div style={{fontSize:12,color:C.textSec,marginBottom:8}}>{a.desc}</div>
+                  {artInfo?.key===a.key&&(
+                    <div style={{borderTop:`1px solid ${C.border}`,paddingTop:10,marginTop:4}}>
+                      <div style={{fontSize:11,fontWeight:700,color:C.nav,marginBottom:4}}>Quando usar</div>
+                      <div style={{fontSize:11,color:C.textSec,lineHeight:1.7,marginBottom:10}}>{a.quando}</div>
+                      <div style={{fontSize:11,fontWeight:700,color:a.cor,marginBottom:4}}>💡 Dica</div>
+                      <div style={{fontSize:11,color:C.textSec,lineHeight:1.7,padding:'8px 10px',background:`${a.cor}08`,borderRadius:4,borderLeft:`2px solid ${a.cor}`}}>{a.dica}</div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
       </div>
-      {notif&&<div style={{position:'fixed',bottom:20,right:20,padding:'10px 18px',background:'#166534',color:'white',borderRadius:6,fontSize:12,fontFamily:'monospace',zIndex:9999}}>{notif}</div>}
+
+      {/* ── MODAL EDITAR PROJETO ── */}
       {editProj&&(
         <div style={{position:'fixed',inset:0,background:'rgba(5,10,25,.87)',zIndex:4000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
-          <div style={{background:'white',borderRadius:10,width:'100%',maxWidth:580,maxHeight:'90vh',display:'flex',flexDirection:'column',boxShadow:'0 40px 100px rgba(0,0,0,.6)'}}>
-            <div style={{background:`linear-gradient(90deg,#0f1a33,${C.nav})`,padding:'14px 22px',borderRadius:'10px 10px 0 0',display:'flex',alignItems:'center',gap:12}}><span style={{color:'white',fontWeight:700,fontSize:15,fontFamily:'Georgia,serif',flex:1}}>⚙️ Configurar Projeto</span><button onClick={()=>setEditProj(false)} style={{background:'rgba(255,255,255,.12)',border:'1px solid rgba(255,255,255,.2)',color:'white',width:32,height:32,borderRadius:5,cursor:'pointer',fontSize:18}}>×</button></div>
-            <div style={{flex:1,overflowY:'auto',padding:'12px 22px'}}>
-              {[['📖 Nome da obra','nome','Teoria Geral do Processo'],['🏛 Área','area','Direito Processual Civil'],['✍️ Autores','autores','Ada Pellegrini Grinover']].map(([lbl,field,ph])=>(
-                <div key={field} style={{marginBottom:10}}><label style={{fontSize:11,fontWeight:700,display:'block',marginBottom:3}}>{lbl}</label><input value={pEdit[field]||''} onChange={e=>setPEdit(p=>({...p,[field]:e.target.value}))} placeholder={ph} style={inp}/></div>
-              ))}
-              <div style={{marginBottom:10}}><label style={{fontSize:11,fontWeight:700,display:'block',marginBottom:3}}>✅ Capítulos concluídos (um por linha)</label><textarea value={pEdit.capsOkTxt||''} onChange={e=>setPEdit(p=>({...p,capsOkTxt:e.target.value}))} style={{...inp,minHeight:70,resize:'vertical',lineHeight:1.6,fontSize:12}} placeholder="Cap. 1 — Fundamentos"/></div>
-              <div><label style={{fontSize:11,fontWeight:700,display:'block',marginBottom:3}}>⏳ Próximos (número|título)</label><textarea value={pEdit.capsProxTxt||''} onChange={e=>setPEdit(p=>({...p,capsProxTxt:e.target.value}))} style={{...inp,minHeight:80,resize:'vertical',lineHeight:1.6,fontSize:12}} placeholder="3|Jurisdição&#10;4|Competência"/></div>
+          <div style={{background:C.white,borderRadius:10,width:'100%',maxWidth:620,maxHeight:'92vh',display:'flex',flexDirection:'column',boxShadow:'0 40px 100px rgba(0,0,0,.6)'}}>
+            <div style={{background:`linear-gradient(90deg,#0f1a33,${C.nav})`,padding:'14px 22px',borderRadius:'10px 10px 0 0',display:'flex',alignItems:'center',gap:12}}>
+              <span style={{fontSize:22}}>📚</span>
+              <span style={{color:'white',fontWeight:700,fontSize:15,fontFamily:'Georgia,serif',flex:1}}>Configurar Projeto</span>
+              <button onClick={()=>setEditProj(false)} style={{background:'rgba(255,255,255,.12)',border:'1px solid rgba(255,255,255,.2)',color:'white',width:32,height:32,borderRadius:5,cursor:'pointer',fontSize:18}}>×</button>
             </div>
-            <div style={{padding:'12px 22px',background:'#f7f3ec',borderTop:`1px solid ${C.border}`,borderRadius:'0 0 10px 10px',display:'flex',justifyContent:'flex-end',gap:8}}>
-              <button onClick={()=>setEditProj(false)} style={{padding:'8px 18px',background:'white',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:13,fontFamily:'Georgia,serif'}}>Cancelar</button>
-              <button onClick={saveProjeto} style={{padding:'8px 28px',background:C.nav,color:'white',border:'none',borderRadius:4,cursor:'pointer',fontSize:13,fontFamily:'Georgia,serif',fontWeight:700}}>💾 Salvar</button>
+            <div style={{flex:1,overflowY:'auto',padding:'12px 24px 20px'}}>
+              {[['📖 Nome da obra','nome','Teoria Geral do Processo'],['🏛 Área','area','Direito Processual Civil'],['✍️ Autores','autores','Ada Pellegrini Grinover']].map(([label,field,ph])=>(
+                <div key={field} style={{marginBottom:12}}>
+                  <label style={{...lbl,marginTop:10}}>{label}</label>
+                  <input style={inp} value={projEdit[field]||''} onChange={e=>setProjEdit(p=>({...p,[field]:e.target.value}))} placeholder={ph}/>
+                </div>
+              ))}
+              <label style={{...lbl,marginTop:10}}>✅ Capítulos concluídos <span style={{fontWeight:400,textTransform:'none'}}>(um por linha)</span></label>
+              <textarea style={{...inp,minHeight:80,resize:'vertical',lineHeight:1.7,fontSize:12}}
+                value={(projEdit.capsOk||[]).join('\n')} onChange={e=>setProjEdit(p=>({...p,capsOk:e.target.value.split('\n').map(l=>l.trim()).filter(Boolean)}))}
+                placeholder={'Cap. 1 — Fundamentos\nCap. 2 — Princípios'}/>
+              <label style={{...lbl,marginTop:12}}>⏳ Próximos capítulos <span style={{fontWeight:400,textTransform:'none'}}>número|título — um por linha</span></label>
+              <textarea style={{...inp,minHeight:100,resize:'vertical',lineHeight:1.7,fontSize:12}}
+                value={(projEdit.capsProx||[]).map(c=>`${c.num}|${c.titulo}`).join('\n')} onChange={e=>setProjEdit(p=>({...p,capsProx:e.target.value.split('\n').map(l=>{const[n,...r]=l.trim().split('|');return n&&r.length?{num:n.trim(),titulo:r.join('|').trim()}:null;}).filter(Boolean)}))}
+                placeholder={'3|Jurisdição e Ação\n4|Competência\n5|Partes e Litisconsórcio'}/>
+              <div style={{fontSize:10,color:C.textTer,fontFamily:'monospace',marginTop:4}}>Formato: número|título</div>
+            </div>
+            <div style={{padding:'12px 24px',background:'#f7f3ec',borderTop:`1px solid ${C.border}`,borderRadius:'0 0 10px 10px',display:'flex',justifyContent:'flex-end',gap:8}}>
+              <button onClick={()=>setEditProj(false)} style={{padding:'8px 18px',background:C.white,color:C.nav,border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:13,fontFamily:'Georgia,serif'}}>Cancelar</button>
+              <button onClick={()=>salvarProj(projEdit)} style={{...btn(C.nav),padding:'8px 28px',fontSize:13}}>💾 Salvar projeto</button>
             </div>
           </div>
         </div>
       )}
+
+      <style>{`::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#ccc;border-radius:3px}`}</style>
     </div>
   );
 }
+
+
 
 // ── BIB TOOL ─────────────────────────────────────────────────────
 function BibTool(){
@@ -1029,7 +1318,7 @@ function App(){
   if(!hasKey)return <KeySetup onSave={()=>setHasKey(true)}/>;
 
   const navItems=[
-    {id:'hub',icon:'🏠',label:'JurHub',desc:'Projeto · Bancos · Export',cor:'#c49a2a'},
+    {id:'hub',icon:'🏠',label:'JurHub',desc:'Projeto · Bancos · Export · Artefatos',cor:'#c49a2a'},
     {id:'obra',icon:'📚',label:'JurObra',desc:'Livros · Tratados',cor:'#8b1a1a'},
     {id:'peca',icon:'⚖️',label:'JurPeça',desc:'Petição · Parecer',cor:'#7c3aed'},
     {id:'fin',icon:'📑',label:'JurFinanceiro',desc:'Bancário · MC',cor:'#0369a1'},
