@@ -52,43 +52,168 @@ async function callClaude(body){
   return d;
 }
 
-// ── DOCX ENGINE ───────────────────────────────────────────────────
-const CRC_T=(()=>{const t=new Uint32Array(256);for(let i=0;i<256;i++){let c=i;for(let j=0;j<8;j++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[i]=c;}return t;})();
-function crc32(d){let c=0xFFFFFFFF;for(let i=0;i<d.length;i++)c=CRC_T[(c^d[i])&0xFF]^(c>>>8);return(c^0xFFFFFFFF)>>>0;}
-function s8(s){return new TextEncoder().encode(s);}
-function cat(a){const tot=a.reduce((s,x)=>s+x.length,0);const o=new Uint8Array(tot);let p=0;for(const x of a){o.set(x,p);p+=x.length;}return o;}
-function sl(b,o,v){b[o]=v&0xFF;b[o+1]=(v>>8)&0xFF;}
-function sl4(b,o,v){b[o]=v&0xFF;b[o+1]=(v>>8)&0xFF;b[o+2]=(v>>16)&0xFF;b[o+3]=(v>>24)&0xFF;}
-function mkzip(files){const lp=[],cp=[];let off=0;for(const f of files){const n=s8(f.name),d=f.data,crc=crc32(d),sz=d.length;const lh=new Uint8Array(30+n.length);sl4(lh,0,0x04034b50);sl(lh,4,20);sl4(lh,14,crc);sl4(lh,18,sz);sl4(lh,22,sz);sl(lh,26,n.length);lh.set(n,30);const cd=new Uint8Array(46+n.length);sl4(cd,0,0x02014b50);sl(cd,4,20);sl(cd,6,20);sl4(cd,16,crc);sl4(cd,20,sz);sl4(cd,24,sz);sl(cd,28,n.length);sl4(cd,38,0);sl4(cd,42,off);cd.set(n,46);lp.push(lh,d);cp.push(cd);off+=lh.length+sz;}const cdD=cat(cp);const eocd=new Uint8Array(22);sl4(eocd,0,0x06054b50);sl(eocd,8,files.length);sl(eocd,10,files.length);sl4(eocd,12,cdD.length);sl4(eocd,16,off);return cat([...lp,cdD,eocd]);}
+// ── DOCX ENGINE v1 (JurDocxEngine_v1) ────────────────────────────
+// Motor unificado — substitui o motor antigo do index
+const CRC_TABLE=(()=>{const t=new Uint32Array(256);for(let i=0;i<256;i++){let c=i;for(let j=0;j<8;j++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[i]=c;}return t;})();
+function crc32(data){let c=0xFFFFFFFF;for(let i=0;i<data.length;i++)c=CRC_TABLE[(c^data[i])&0xFF]^(c>>>8);return(c^0xFFFFFFFF)>>>0;}
+function strToU8(str){return new TextEncoder().encode(str);}
+// alias para compatibilidade com código legado do index
+const s8=strToU8;
+function concatU8(arrays){const total=arrays.reduce((s,a)=>s+a.length,0);const out=new Uint8Array(total);let p=0;for(const a of arrays){out.set(a,p);p+=a.length;}return out;}
+// alias legado
+const cat=concatU8;
+function setU16LE(buf,off,v){buf[off]=v&0xFF;buf[off+1]=(v>>8)&0xFF;}
+function setU32LE(buf,off,v){buf[off]=v&0xFF;buf[off+1]=(v>>8)&0xFF;buf[off+2]=(v>>16)&0xFF;buf[off+3]=(v>>24)&0xFF;}
+// aliases legados
+const sl=setU16LE;
+const sl4=setU32LE;
+function buildZip(files){const localParts=[],cdParts=[];let offset=0;for(const f of files){const name=strToU8(f.name),data=f.data,crc=crc32(data),sz=data.length;const lh=new Uint8Array(30+name.length);setU32LE(lh,0,0x04034b50);setU16LE(lh,4,20);setU16LE(lh,6,0);setU16LE(lh,8,0);setU16LE(lh,10,0);setU16LE(lh,12,0);setU32LE(lh,14,crc);setU32LE(lh,18,sz);setU32LE(lh,22,sz);setU16LE(lh,26,name.length);setU16LE(lh,28,0);lh.set(name,30);const cd=new Uint8Array(46+name.length);setU32LE(cd,0,0x02014b50);setU16LE(cd,4,20);setU16LE(cd,6,20);setU16LE(cd,8,0);setU16LE(cd,10,0);setU16LE(cd,12,0);setU16LE(cd,14,0);setU32LE(cd,16,crc);setU32LE(cd,20,sz);setU32LE(cd,24,sz);setU16LE(cd,28,name.length);setU16LE(cd,30,0);setU16LE(cd,32,0);setU16LE(cd,34,0);setU16LE(cd,36,0);setU32LE(cd,38,0);setU32LE(cd,42,offset);cd.set(name,46);localParts.push(lh,data);cdParts.push(cd);offset+=lh.length+sz;}const cdData=concatU8(cdParts);const eocd=new Uint8Array(22);setU32LE(eocd,0,0x06054b50);setU16LE(eocd,4,0);setU16LE(eocd,6,0);setU16LE(eocd,8,files.length);setU16LE(eocd,10,files.length);setU32LE(eocd,12,cdData.length);setU32LE(eocd,16,offset);setU16LE(eocd,20,0);return concatU8([...localParts,cdData,eocd]);}
+// alias legado
+const mkzip=buildZip;
 function ex(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-const SC='⁰¹²³⁴⁵⁶⁷⁸⁹';
-const SM={'⁰':0,'¹':1,'²':2,'³':3,'⁴':4,'⁵':5,'⁶':6,'⁷':7,'⁸':8,'⁹':9,'¹⁰':10,'¹¹':11,'¹²':12,'¹³':13,'¹⁴':14,'¹⁵':15,'¹⁶':16,'¹⁷':17,'¹⁸':18,'¹⁹':19,'²⁰':20,'²¹':21,'²²':22,'²³':23,'²⁴':24,'²⁵':25};
-const SE=Object.entries(SM).sort((a,b)=>b[0].length-a[0].length);
-function s2n(s){for(const[k,v]of SE)if(s.startsWith(k))return{n:v,len:k.length};return null;}
-function pNN(l){const r=s2n(l);if(r)return{num:r.n,text:l.slice(r.len).trim()};const m=l.match(/^(\d{1,2})[.\):\s]\s*(.+)/);if(m)return{num:parseInt(m[1]),text:m[2]};return null;}
-const eP=()=>`<w:p><w:pPr><w:spacing w:before="0" w:after="60"/></w:pPr></w:p>`;
-function wR(r,pt=12){const sz=pt*2;const rp=[r.b?'<w:b/><w:bCs/>':'',r.i?'<w:i/><w:iCs/>':'',r.sup?'<w:vertAlign w:val="superscript"/>':'',`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join('');return`<w:r><w:rPr>${rp}</w:rPr><w:t xml:space="preserve">${ex(r.t)}</w:t></w:r>`;}
-function wP(runs,o={}){const al=o.c?'center':(o.a||'both');let ix='';if(o.in)ix=`<w:ind w:firstLine="${o.in}"/>`;if(o.il||o.ir)ix=`<w:ind ${o.il?`w:left="${o.il}"`:''}  ${o.ir?`w:right="${o.ir}"`:''}  />`;const pp=`<w:pPr><w:spacing w:before="${o.sb||0}" w:after="${o.sa||60}" w:line="${o.lv||276}" w:lineRule="auto"/>${ix}<w:jc w:val="${al}"/></w:pPr>`;return`<w:p>${pp}${runs.map(r=>wR(r,o.pt||12)).join('')}</w:p>`;}
-function wFN(id,txt){return`<w:footnote w:id="${id}"><w:p><w:pPr><w:spacing w:line="220" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r><w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/><w:sz w:val="18"/></w:rPr><w:t xml:space="preserve"> ${ex(txt)}</w:t></w:r></w:p></w:footnote>`;}
-function wFNR(id){return`<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="${id}"/></w:r>`;}
-function pIF(str){str=str.replace(/\[Fonte:[^\]]+\]/g,'');const out=[],re=/(\*\*[^*]+\*\*|\*[^*]+\*|[⁰¹²³⁴⁵⁶⁷⁸⁹]+)/g;let last=0,m;while((m=re.exec(str))!==null){if(m.index>last)out.push({t:str.slice(last,m.index),b:false,i:false,sup:false,fn:null});const tok=m[0];if(/^\*\*[^*]+\*\*$/.test(tok))out.push({t:tok.slice(2,-2),b:true,i:false,sup:false,fn:null});else if(/^\*[^*]+\*$/.test(tok))out.push({t:tok.slice(1,-1),b:false,i:true,sup:false,fn:null});else{const r=s2n(tok);out.push({t:tok,b:false,i:false,sup:true,fn:r?r.n:null});}last=m.index+tok.length;}if(last<str.length)out.push({t:str.slice(last),b:false,i:false,sup:false,fn:null});return out.filter(x=>x.t||(x.sup&&x.fn));}
-function wPFN(raw,o={},fm){const al=o.c?'center':(o.a||'both');let ix='';if(o.in)ix=`<w:ind w:firstLine="${o.in}"/>`;const pp=`<w:pPr><w:spacing w:before="${o.sb||0}" w:after="${o.sa||60}" w:line="${o.lv||276}" w:lineRule="auto"/>${ix}<w:jc w:val="${al}"/></w:pPr>`;const toks=pIF(raw);const sz=(o.pt||12)*2;const F=`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>`;const runs=toks.map(r=>{if(r.sup&&r.fn&&r.fn>0&&fm){if(fm[r.fn])return wFNR(r.fn);fm[r.fn]=`Nota ${r.fn}.`;return wFNR(r.fn);}const rp=[r.b?'<w:b/><w:bCs/>':'',r.i?'<w:i/><w:iCs/>':'',r.sup?'<w:vertAlign w:val="superscript"/>':'',F,`<w:sz w:val="${sz}"/>`].join('');return`<w:r><w:rPr>${rp}</w:rPr><w:t xml:space="preserve">${ex(r.t||'')}</w:t></w:r>`;}).join('');return`<w:p>${pp}${runs}</w:p>`;}
+// alias v1
+const esc=ex;
+const SUP_MAP={"⁰":0,"¹":1,"²":2,"³":3,"⁴":4,"⁵":5,"⁶":6,"⁷":7,"⁸":8,"⁹":9,"¹⁰":10,"¹¹":11,"¹²":12,"¹³":13,"¹⁴":14,"¹⁵":15,"¹⁶":16,"¹⁷":17,"¹⁸":18,"¹⁹":19,"²⁰":20,"²¹":21,"²²":22,"²³":23,"²⁴":24,"²⁵":25,"²⁶":26,"²⁷":27,"²⁸":28,"²⁹":29,"³⁰":30,"³¹":31,"³²":32,"³³":33,"³⁴":34,"³⁵":35,"³⁶":36,"³⁷":37,"³⁸":38,"³⁹":39,"⁴⁰":40,"⁴¹":41,"⁴²":42,"⁴³":43,"⁴⁴":44,"⁴⁵":45,"⁴⁶":46,"⁴⁷":47,"⁴⁸":48,"⁴⁹":49,"⁵⁰":50,"⁵¹":51,"⁵²":52,"⁵³":53,"⁵⁴":54,"⁵⁵":55,"⁵⁶":56,"⁵⁷":57,"⁵⁸":58,"⁵⁹":59,"⁶⁰":60,"⁶¹":61,"⁶²":62,"⁶³":63,"⁶⁴":64,"⁶⁵":65,"⁷⁰":70,"⁸⁰":80,"⁹⁰":90,"⁹⁹":99};
+const SUP_CHARS="⁰¹²³⁴⁵⁶⁷⁸⁹";
+// aliases legados
+const SC=SUP_CHARS;
+const SM=SUP_MAP;
+const SUP_ENTRIES=Object.entries(SUP_MAP).sort((a,b)=>b[0].length-a[0].length);
+const SE=SUP_ENTRIES;
+function supToNum(s){for(const[k,v]of SUP_ENTRIES){if(s.startsWith(k))return{n:v,len:k.length};}return null;}
+const s2n=supToNum;
+function parseNoteNum(line){const res=supToNum(line);if(res)return{num:res.n,text:line.slice(res.len).trim()};const m=line.match(/^(\d{1,2})[.\):\s]\s*(.+)/);if(m)return{num:parseInt(m[1]),text:m[2]};return null;}
+const pNN=parseNoteNum;
+const emptyP=()=>`<w:p><w:pPr><w:spacing w:before="0" w:after="60"/></w:pPr></w:p>`;
+const eP=emptyP;
+function wRun(r,pt=12){const sz=pt*2;const rpr=[r.bold?`<w:b/><w:bCs/>`:(r.b?`<w:b/><w:bCs/>`:""),r.italic?`<w:i/><w:iCs/>`:(r.i?`<w:i/><w:iCs/>`:""),r.sup?`<w:vertAlign w:val="superscript"/>`:"",`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>`,`<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join("");return`<w:r><w:rPr>${rpr}</w:rPr><w:t xml:space="preserve">${ex(r.text||r.t||"")}</w:t></w:r>`;}
+const wR=wRun;
+function wPara(runs,o={}){const al=o.center?(o.c?"center":"center"):(o.c?"center":(o.align||o.a||"both"));let indXml="";if(o.indent||o.indentLeft||o.indentRight||o.in||o.il||o.ir){const fl=(o.indent||o.in)?`w:firstLine="${o.indent||o.in}"`:"";const lft=(o.indentLeft||o.il)?`w:left="${o.indentLeft||o.il}"`:"";const rgt=(o.indentRight||o.ir)?`w:right="${o.indentRight||o.ir}"`:"";indXml=`<w:ind ${fl} ${lft} ${rgt}/>`;}const ppr=`<w:pPr><w:spacing w:before="${o.spaceBefore||o.sb||0}" w:after="${o.spaceAfter||o.sa||60}" w:line="${o.lineVal||o.lv||276}" w:lineRule="auto"/>${indXml}<w:jc w:val="${al}"/>${o.border?`<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="000000"/></w:pBdr>`:""}</w:pPr>`;return`<w:p>${ppr}${runs.map(r=>wRun(r,o.sizePt||o.pt||12)).join("")}</w:p>`;}
+const wP=wPara;
+function wFootnote(id,text){const sz=18;const font=`<w:rFonts w:ascii="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman"/>`;const parts=[];const re=/\*([^*]+)\*/g;let last=0,m;while((m=re.exec(text))!==null){if(m.index>last)parts.push({t:text.slice(last,m.index),i:false});parts.push({t:m[1],i:true});last=m.index+m[0].length;}if(last<text.length)parts.push({t:text.slice(last),i:false});const hasItalic=parts.some(p=>p.i);let runsXml;if(!hasItalic){const txt=parts.map(p=>p.t).join('');runsXml=`<w:r><w:rPr>${font}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t xml:space="preserve"> ${ex(txt)}</w:t></w:r>`;}else{runsXml=`<w:r><w:rPr>${font}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t xml:space="preserve"> </w:t></w:r>`+parts.map(p=>{const rpr=[p.i?`<w:i/><w:iCs/>`:"",font,`<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join("");return`<w:r><w:rPr>${rpr}</w:rPr><w:t xml:space="preserve">${ex(p.t)}</w:t></w:r>`;}).join('');}return`<w:footnote w:id="${id}"><w:p><w:pPr><w:spacing w:line="220" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r>${runsXml}</w:p></w:footnote>`;}
+const wFN=wFootnote;
+function wFootnoteRef(id){return`<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="${id}"/></w:r>`;}
+const wFNR=wFootnoteRef;
+function parseInlineWithFn(str){str=str.replace(/\[Fonte:[^\]]+\]/g,"");const out=[],re=/(\*\*[^*]+\*\*|\*[^*]+\*|[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\[(\d{1,2})\]|\((\d{1,2})\)(?=\s|$))/g;let last=0,m;while((m=re.exec(str))!==null){if(m.index>last)out.push({text:str.slice(last,m.index),bold:false,italic:false,sup:false,fnNum:null});const tok=m[0];if(/^\*\*[^*]+\*\*$/.test(tok))out.push({text:tok.slice(2,-2),bold:true,italic:false,sup:false,fnNum:null});else if(/^\*[^*]+\*$/.test(tok))out.push({text:tok.slice(1,-1),bold:false,italic:true,sup:false,fnNum:null});else{let n=null;const res=supToNum(tok);if(res){n=res.n;}else{const nm=tok.match(/^[\[\(](\d{1,2})[\]\)]$/);if(nm)n=parseInt(nm[1]);}out.push({text:tok,bold:false,italic:false,sup:true,fnNum:n});}last=m.index+tok.length;}if(last<str.length)out.push({text:str.slice(last),bold:false,italic:false,sup:false,fnNum:null});return out.filter(r=>r.text||(r.sup&&r.fnNum));}
+const pIF=parseInlineWithFn;
+function wParaWithFn(rawLine,o={},footnoteMap=null){const al=o.center?(o.c?"center":"center"):(o.c?"center":(o.align||o.a||"both"));let indXml="";if(o.indent||o.indentLeft||o.indentRight||o.in||o.il||o.ir){const fl=(o.indent||o.in)?`w:firstLine="${o.indent||o.in}"`:"";const lft=(o.indentLeft||o.il)?`w:left="${o.indentLeft||o.il}"`:"";const rgt=(o.indentRight||o.ir)?`w:right="${o.indentRight||o.ir}"`:"";indXml=`<w:ind ${fl} ${lft} ${rgt}/>`;}const ppr=`<w:pPr><w:spacing w:before="${o.spaceBefore||o.sb||0}" w:after="${o.spaceAfter||o.sa||60}" w:line="${o.lineVal||o.lv||276}" w:lineRule="auto"/>${indXml}<w:jc w:val="${al}"/></w:pPr>`;const tokens=parseInlineWithFn(rawLine);const pt=o.sizePt||o.pt||12;const sz=pt*2;const FONT=`<w:rFonts w:ascii="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman"/>`;const runs=tokens.map(r=>{if(r.sup&&r.fnNum&&r.fnNum>0){if(footnoteMap&&footnoteMap[r.fnNum])return wFootnoteRef(r.fnNum);if(footnoteMap&&!footnoteMap[r.fnNum]){footnoteMap[r.fnNum]=`Nota ${r.fnNum}. [Referência não localizada]`;return wFootnoteRef(r.fnNum);}}const rpr=[r.bold?`<w:b/><w:bCs/>`:"",r.italic?`<w:i/><w:iCs/>`:"",r.sup?`<w:vertAlign w:val="superscript"/>`:"",(r.b?`<w:b/><w:bCs/>`:""),FONT,`<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join("");return`<w:r><w:rPr>${rpr}</w:rPr><w:t xml:space="preserve">${ex(r.text||r.t||"")}</w:t></w:r>`;}).join("");return`<w:p>${ppr}${runs}</w:p>`;}
+const wPFN=wParaWithFn;
 
+// ── Motor principal gerarDocx (v1) ────────────────────────────────
+async function gerarDocx(rawText,nomeLivro,projetoObj){
+  const proj=projetoObj||{nome:nomeLivro||"",area:"",autores:"",capsOk:[],capsProx:[]};
+  const lines=rawText.replace(/\[Fonte:[^\]]+\]/g,"").split("\n");
+  const noteSecIdx=lines.findIndex(l=>/^②?\s*(NOTAS?\s*DE\s*RODAP)/i.test(l.trim().replace(/\*\*/g,"")));
+  const refSecIdx=lines.findIndex(l=>/^(③ REFERÊNCIAS|REFERÊNCIAS BIBLIOGRÁFICAS)/i.test(l.trim()));
+  const firstSep=Math.min(...[noteSecIdx,refSecIdx].filter(x=>x>-1).concat([lines.length]));
+  const bodyLines=lines.slice(0,firstSep);
+  const footnoteMap={};
+  const tryCollect=(slice)=>{for(const ln of slice){const raw=ln.trim();if(!raw)continue;const p=parseNoteNum(raw);if(p&&p.text.length>10)footnoteMap[p.num]=p.text;}};
+  if(noteSecIdx>-1){const end=refSecIdx>noteSecIdx?refSecIdx:lines.length;tryCollect(lines.slice(noteSecIdx+1,end));}
+  if(Object.keys(footnoteMap).length===0)tryCollect(lines.filter(l=>{const r=l.trim();return(SUP_CHARS.includes(r[0])||/^\d{1,2}[.\)]\s/.test(r))&&r.length<400;}));
+  if(Object.keys(footnoteMap).length===0)tryCollect(lines.slice(-80));
+  const RECUO=709,BODY=12,NOTE=9,SEC=12,CAP_T=14,CAP_N=12,EMENTA=10,LINE_B=276,LINE_S=240;
+  const paras=[];
+  const allCaps=[...proj.capsOk.map((c,i)=>({num:i+1,label:c,ok:true})),...proj.capsProx.map(c=>({num:c.num,label:`Cap. ${c.num} — ${c.titulo}`,ok:false}))];
+  if(proj.nome){
+    paras.push(emptyP(),emptyP(),emptyP());
+    paras.push(wPara([{text:proj.area||"Obra Jurídica",bold:false,italic:true,sup:false}],{center:true,sizePt:11,spaceBefore:0,spaceAfter:60,lineVal:LINE_S}));
+    paras.push(wPara([{text:proj.nome,bold:true,italic:false,sup:false}],{center:true,sizePt:22,spaceBefore:60,spaceAfter:160,lineVal:280}));
+    if(proj.autores)paras.push(wPara([{text:proj.autores,bold:false,italic:false,sup:false}],{center:true,sizePt:11,spaceBefore:0,spaceAfter:40,lineVal:LINE_S}));
+    paras.push(emptyP(),emptyP());
+    paras.push(wPara([{text:"",bold:false,italic:false,sup:false}],{center:true,sizePt:10,spaceBefore:40,spaceAfter:40,border:true}));
+    paras.push(emptyP());
+    if(allCaps.length>0){
+      paras.push(wPara([{text:"SUMÁRIO",bold:true,italic:false,sup:false}],{center:true,sizePt:14,spaceBefore:80,spaceAfter:200,lineVal:LINE_S}));
+      for(const c of allCaps){const label=typeof c.label==="string"?c.label:`Cap. ${c.num}`;paras.push(wPara([{text:(c.ok?"✓ ":"")+label,bold:false,italic:false,sup:false}],{align:"left",sizePt:11,spaceBefore:60,spaceAfter:40,lineVal:LINE_S,indent:0}));}
+      paras.push(emptyP());
+      paras.push(`<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>`);
+    }
+  }else{paras.push(emptyP());}
+  for(const line of bodyLines){
+    const raw=line.trim();
+    if(!raw){paras.push(emptyP());continue;}
+    if(/^-{3,}$/.test(raw)){paras.push(`<w:p><w:pPr><w:jc w:val="both"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="000000"/></w:pBdr><w:spacing w:before="120" w:after="120"/></w:pPr></w:p>`);continue;}
+    if(/^Cap[íi]tulo\s+[IVXLCDM\d]+$/i.test(raw)){paras.push(wPara([{text:raw,bold:false,italic:false,sup:false}],{center:true,sizePt:CAP_N,spaceBefore:0,spaceAfter:120,lineVal:LINE_S}));continue;}
+    if(raw===raw.toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(raw)&&raw.length>4&&!/^\d/.test(raw)&&!/^[①②③④⑤⑥⑦⑧]/.test(raw)&&!raw.startsWith("EMENTA_CAP")){paras.push(wPara([{text:raw,bold:true,italic:false,sup:false}],{center:true,sizePt:CAP_T,spaceBefore:0,spaceAfter:360,lineVal:LINE_S}));continue;}
+    if(/^EMENTA_CAP:/i.test(raw)){const txt=raw.replace(/^EMENTA_CAP:\s*/i,"");paras.push(wPara([{text:txt,bold:false,italic:true,sup:false}],{center:false,align:"both",sizePt:EMENTA,spaceBefore:0,spaceAfter:0,lineVal:LINE_S,indentLeft:1440,indentRight:1440}));continue;}
+    if(/^\*\*[^*]+\*\*$/.test(raw)){const txt=raw.replace(/\*\*/g,"");paras.push(wPara([{text:txt,bold:true,italic:false,sup:false}],{align:"left",sizePt:SEC,spaceBefore:420,spaceAfter:180,lineVal:LINE_B}));continue;}
+    if(/^\d+\.\d+(\.\d+)?\s+\S/.test(raw)){const txt=raw.replace(/^\d+\.\d+(\.\d+)?\s+/,"");paras.push(wPara([{text:txt,bold:true,italic:false,sup:false}],{align:"left",sizePt:SEC,spaceBefore:420,spaceAfter:180,lineVal:LINE_B}));continue;}
+    if(/^#{1,3}\s/.test(raw)){const txt=raw.replace(/^#+\s/,"");paras.push(wPara([{text:txt,bold:true,italic:false,sup:false}],{align:"left",sizePt:SEC,spaceBefore:420,spaceAfter:180,lineVal:LINE_B}));continue;}
+    if(/^>\s*/.test(raw)){paras.push(wParaWithFn(raw.replace(/^>\s*/,""),{align:"both",sizePt:NOTE,spaceBefore:120,spaceAfter:120,lineVal:LINE_S,indentLeft:709,indentRight:709},footnoteMap));continue;}
+    const rawClean=raw.replace(/\*\*/g,"").replace(/^#+\s*/,"").trim();
+    if(/^[①②③④⑤⑥⑦⑧]/.test(rawClean))continue;
+    if(/^(NOTAS?\s*DE\s*RODAP|REFERÊNCIAS|AVALIAÇÃO\s*TÉCNICA)/i.test(rawClean))continue;
+    if((SUP_CHARS.includes(raw[0])||/^\d{1,2}[.\)]\s/.test(raw))&&raw.length<400){const p=parseNoteNum(raw);if(p&&p.text.length>10)continue;}
+    paras.push(wParaWithFn(raw,{align:"both",sizePt:BODY,indent:RECUO,spaceBefore:0,spaceAfter:60,lineVal:LINE_B},footnoteMap));
+  }
+  const capLine=bodyLines.find(l=>/^CAPÍTULO\s+\d+/i.test(l.trim()))||"";
+  const titLine=bodyLines.find((l,i)=>i>0&&l.trim()&&l.trim()===l.trim().toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(l.trim()))||"";
+  const hTxt=ex(([capLine.trim(),titLine.trim()].filter(Boolean).join(" — ")||nomeLivro||"Edição Acadêmica").slice(0,80));
+  const fnEntries=Object.entries(footnoteMap).sort((a,b)=>Number(a[0])-Number(b[0]));
+  const footnotesXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">\n<w:footnote w:type="separator" w:id="-1"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r><w:r><w:separator/></w:r></w:p></w:footnote>\n<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>\n${fnEntries.map(([id,text])=>wFootnote(Number(id),text)).join("\n")}\n</w:footnotes>`;
+  const docXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">\n<w:body>${paras.join("")}\n<w:sectPr><w:headerReference w:type="default" r:id="rH1"/><w:footerReference w:type="default" r:id="rF1"/>\n<w:pgSz w:w="11906" w:h="16838" w:orient="portrait"/>\n<w:pgMar w:top="1800" w:right="1800" w:bottom="1800" w:left="1800" w:header="708" w:footer="708" w:gutter="0"/>\n<w:pgNumType/><w:docGrid w:linePitch="360"/></w:sectPr>\n</w:body></w:document>`;
+  const headerXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n<w:p><w:pPr><w:jc w:val="right"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:after="80"/></w:pPr>\n<w:r><w:rPr><w:i/><w:color w:val="555555"/><w:sz w:val="16"/><w:szCs w:val="16"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>${hTxt}</w:t></w:r></w:p></w:hdr>`;
+  const footerXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n<w:p><w:pPr><w:jc w:val="center"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:before="80"/></w:pPr>\n<w:r><w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>— </w:t></w:r>\n<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>\n<w:r><w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t> —</w:t></w:r></w:p></w:ftr>`;
+  const relsDoc=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>\n  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/>\n  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>\n  <Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable" Target="fontTable.xml"/>\n  <Relationship Id="rH1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>\n  <Relationship Id="rF1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>\n</Relationships>`;
+  const relsRoot=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const ctypes=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/><Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>`;
+  const stylesXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:jc w:val="both"/></w:pPr></w:style><w:style w:type="character" w:styleId="DefaultParagraphFont"><w:name w:val="Default Paragraph Font"/><w:uiPriority w:val="1"/><w:semiHidden/><w:unhideWhenUsed/></w:style><w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:basedOn w:val="DefaultParagraphFont"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:basedOn w:val="Normal"/><w:link w:val="FootnoteTextChar"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style><w:style w:type="character" w:styleId="FootnoteTextChar"><w:name w:val="Footnote Text Char"/><w:basedOn w:val="DefaultParagraphFont"/><w:link w:val="FootnoteText"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style></w:styles>`;
+  const settingsXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:displayBackgroundShape/><w:evenAndOddHeaders w:val="false"/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>`;
+  const fontTableXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:fonts xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:font w:name="Times New Roman"><w:panose1 w:val="02020603050405020304"/><w:charset w:val="00"/><w:family w:val="roman"/><w:pitch w:val="variable"/></w:font></w:fonts>`;
+  const fnRels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`;
+  const files=[{name:"[Content_Types].xml",data:strToU8(ctypes)},{name:"_rels/.rels",data:strToU8(relsRoot)},{name:"word/document.xml",data:strToU8(docXml)},{name:"word/styles.xml",data:strToU8(stylesXml)},{name:"word/settings.xml",data:strToU8(settingsXml)},{name:"word/fontTable.xml",data:strToU8(fontTableXml)},{name:"word/footnotes.xml",data:strToU8(footnotesXml)},{name:"word/header1.xml",data:strToU8(headerXml)},{name:"word/footer1.xml",data:strToU8(footerXml)},{name:"word/_rels/document.xml.rels",data:strToU8(relsDoc)},{name:"word/_rels/footnotes.xml.rels",data:strToU8(fnRels)}];
+  const zipData=buildZip(files);
+  function u8ToBase64(u8){let bin="";const chunk=8192;for(let i=0;i<u8.length;i+=chunk)bin+=String.fromCharCode(...u8.subarray(i,i+chunk));return btoa(bin);}
+  const slug=(nomeLivro||"JurDocx").replace(/[^a-zA-Z0-9]/g,"_").slice(0,30);
+  const filename=slug+"_"+new Date().toISOString().slice(0,10)+".docx";
+  const b64=u8ToBase64(zipData);
+  const dataUri="data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,"+b64;
+  let url;try{const blob=new Blob([zipData],{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});url=URL.createObjectURL(blob);}catch(_){url=dataUri;}
+  const a=document.createElement("a");a.href=url;a.download=filename;a.style.display="none";document.body.appendChild(a);a.click();setTimeout(()=>{document.body.removeChild(a);if(url!==dataUri)URL.revokeObjectURL(url);},1000);
+  return{dataUri,filename,diagnostics:{footnoteMap,bodyLines:bodyLines.length,fnCount:fnEntries.length}};
+}
+
+// ── Análise prévia de texto ───────────────────────────────────────
+function analisarTexto(rawText){
+  const lines=rawText.split("\n");
+  let secoes=0,paragrafos=0,notasEncontradas=0,capituloDetectado="";
+  const titulos=[];
+  const noteSecIdx=lines.findIndex(l=>/^②?\s*(NOTAS?\s*DE\s*RODAP)/i.test(l.trim().replace(/\*\*/g,"")));
+  const bodyLines=noteSecIdx>-1?lines.slice(0,noteSecIdx):lines;
+  for(const line of bodyLines){
+    const raw=line.trim();if(!raw)continue;
+    if(/^Cap[íi]tulo\s+[IVXLCDM\d]+$/i.test(raw))capituloDetectado=raw;
+    else if(raw===raw.toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(raw)&&raw.length>4&&!/^\d/.test(raw))titulos.push(raw.slice(0,55));
+    else if(/^\*\*[^*]+\*\*$/.test(raw)||/^#{1,3}\s/.test(raw))secoes++;
+    else if(raw.length>40&&!/^[①②③④⑤⑥⑦⑧]/.test(raw))paragrafos++;
+  }
+  if(noteSecIdx>-1){for(const ln of lines.slice(noteSecIdx+1)){const r=ln.trim();if(!r)continue;const p=parseNoteNum(r);if(p)notasEncontradas++;}}
+  else{for(const ln of lines){const r=ln.trim();if((SUP_CHARS.includes(r[0])||/^\d{1,2}[.\)]\s/.test(r))&&r.length<400){const p=parseNoteNum(r);if(p&&p.text.length>10)notasEncontradas++;}}}
+  const palavras=rawText.split(/\s+/).filter(Boolean).length;
+  return{capituloDetectado,titulos,secoes,paragrafos,notasEncontradas,palavras,linhas:lines.length};
+}
+
+// ── Wrapper legado docxDownload (usado por HubTool, etc.) ─────────
 function docxDownload(paras,hTxt,fnE,filename){
-  const FNX=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>${(fnE||[]).map(([id,t])=>wFN(Number(id),t)).join('')}</w:footnotes>`;
+  const textoPseudo=paras.join('\n');
+  const nomeLivro=String(hTxt||'').slice(0,60);
+  const proj={nome:'',area:'',autores:'',capsOk:[],capsProx:[]};
+  // Monta o XML final direto sem reparsear (paras já são XML puro)
+  const FNX=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>${(fnE||[]).map(([id,t])=>wFootnote(Number(id),t)).join('')}</w:footnotes>`;
   const H=ex(String(hTxt||'').slice(0,80));
   const HDR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="right"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:after="80"/></w:pPr><w:r><w:rPr><w:i/><w:color w:val="555555"/><w:sz w:val="16"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>${H}</w:t></w:r></w:p></w:hdr>`;
   const FTR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="center"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:before="80"/></w:pPr><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p></w:ftr>`;
   const docXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${paras.join('')}<w:sectPr><w:headerReference w:type="default" r:id="rH1"/><w:footerReference w:type="default" r:id="rF1"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1800" w:right="1800" w:bottom="1800" w:left="1800" w:header="708" w:footer="708"/><w:pgNumType/></w:sectPr></w:body></w:document>`;
-  const rD=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rH1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rF1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>`;
+  const rD=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable" Target="fontTable.xml"/><Relationship Id="rH1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rF1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>`;
   const rR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
-  const ct=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>`;
-  const sy=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:jc w:val="both"/></w:pPr></w:style><w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:basedOn w:val="DefaultParagraphFont"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style></w:styles>`;
-  const se=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>`;
-  const ft=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:font w:name="Times New Roman"/></w:fonts>`;
+  const ct=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/><Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>`;
+  const sy=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:jc w:val="both"/></w:pPr></w:style><w:style w:type="character" w:styleId="DefaultParagraphFont"><w:name w:val="Default Paragraph Font"/><w:uiPriority w:val="1"/><w:semiHidden/><w:unhideWhenUsed/></w:style><w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:basedOn w:val="DefaultParagraphFont"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:basedOn w:val="Normal"/><w:link w:val="FootnoteTextChar"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style><w:style w:type="character" w:styleId="FootnoteTextChar"><w:name w:val="Footnote Text Char"/><w:basedOn w:val="DefaultParagraphFont"/><w:link w:val="FootnoteText"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style></w:styles>`;
+  const se=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:displayBackgroundShape/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>`;
+  const ft=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:fonts xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:font w:name="Times New Roman"><w:panose1 w:val="02020603050405020304"/><w:charset w:val="00"/><w:family w:val="roman"/><w:pitch w:val="variable"/></w:font></w:fonts>`;
   const fnR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`;
-  const files=[{name:'[Content_Types].xml',data:s8(ct)},{name:'_rels/.rels',data:s8(rR)},{name:'word/document.xml',data:s8(docXml)},{name:'word/styles.xml',data:s8(sy)},{name:'word/settings.xml',data:s8(se)},{name:'word/fontTable.xml',data:s8(ft)},{name:'word/footnotes.xml',data:s8(FNX)},{name:'word/header1.xml',data:s8(HDR)},{name:'word/footer1.xml',data:s8(FTR)},{name:'word/_rels/document.xml.rels',data:s8(rD)},{name:'word/_rels/footnotes.xml.rels',data:s8(fnR)}];
-  const zd=mkzip(files);
+  const files=[{name:'[Content_Types].xml',data:strToU8(ct)},{name:'_rels/.rels',data:strToU8(rR)},{name:'word/document.xml',data:strToU8(docXml)},{name:'word/styles.xml',data:strToU8(sy)},{name:'word/settings.xml',data:strToU8(se)},{name:'word/fontTable.xml',data:strToU8(ft)},{name:'word/footnotes.xml',data:strToU8(FNX)},{name:'word/header1.xml',data:strToU8(HDR)},{name:'word/footer1.xml',data:strToU8(FTR)},{name:'word/_rels/document.xml.rels',data:strToU8(rD)},{name:'word/_rels/footnotes.xml.rels',data:strToU8(fnR)}];
+  const zd=buildZip(files);
   function u8b64(u){let b='';const c=8192;for(let i=0;i<u.length;i+=c)b+=String.fromCharCode(...u.subarray(i,i+c));return btoa(b);}
   const uri='data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,'+u8b64(zd);
   let url;try{url=URL.createObjectURL(new Blob([zd],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}));}catch{url=uri;}
@@ -703,6 +828,198 @@ function JurTool(){
   );
 }
 
+// ── JURDOCX ENGINE — Texto de demonstração ────────────────────────
+const DEMO_DOCX=`Capítulo I
+
+A JURISDIÇÃO E SEUS FUNDAMENTOS
+
+EMENTA_CAP: Funções básicas do Estado: legislação, administração e jurisdição. Conceito e natureza jurídica da jurisdição. Princípios informativos. Equivalentes jurisdicionais.
+
+---
+
+**Conceito e natureza jurídica**
+
+A jurisdição constitui uma das funções essenciais do Estado moderno, ao lado da legislação e da administração. CHIOVENDA¹, em sua clássica obra *Principii di Diritto Processuale Civile*, sustenta que a jurisdição consiste na atuação da vontade concreta da lei, mediante substituição da atividade dos particulares pela atividade de órgãos públicos.
+
+Nesse diapasão, cumpre observar que a jurisdição não se confunde com a administração, muito embora ambas se expressem como atividades do Estado. Com efeito, enquanto a administração prossegue finalidades públicas em nome próprio, a jurisdição atua em posição de terceiro imparcial, substituindo a vontade das partes.²
+
+**Princípios informativos**
+
+Os princípios que informam a atividade jurisdicional são de ordem lógica, jurídica, política e econômica. O princípio da inércia (ne procedat iudex ex officio) é corolário natural da imparcialidade: o Estado-juiz não pode mover-se de ofício, aguardando a provocação do interessado.³
+
+> EMENTA — STF, RE 848.826/DF, Rel. Min. Roberto Barroso, Plenário, j. 10.08.2016: "A jurisdição constitucional pressupõe a inércia como vetor de imparcialidade estrutural do Poder Judiciário."
+
+Síntese do Capítulo
+
+O percurso deste capítulo permite enunciar três conclusões estruturantes. Primeira, a jurisdição é função estatal exercida por terceiro imparcial, que substitui a vontade das partes na composição dos conflitos. Segunda, distingue-se da administração pela nota da substitutividade e da definitividade.
+
+② NOTAS DE RODAPÉ
+¹ Giuseppe Chiovenda, *Principii di Diritto Processuale Civile*, 3. ed., Napoli, Jovene, 1923, p. 43.
+² Cândido Rangel Dinamarco, *Instituições de Direito Processual Civil*, v. I, 9. ed., São Paulo, Malheiros, 2023, p. 317.
+³ Fredie Didier Jr., *Curso de Direito Processual Civil*, v. I, 25. ed., Salvador, JusPodivm, 2024, p. 189.`;
+
+// ── JURDOCX ENGINE — Componente React ────────────────────────────
+function JurDocxEngine(){
+  const[texto,setTexto]=useState('');
+  const[nomeLivro,setNomeLivro]=useState('');
+  const[area,setArea]=useState('');
+  const[autores,setAutores]=useState('');
+  const[status,setStatus]=useState('idle');
+  const[diag,setDiag]=useState(null);
+  const[fallback,setFallback]=useState(null);
+  const[tab,setTab]=useState('texto');
+
+  const analise=texto.trim().length>30?analisarTexto(texto):null;
+
+  const carregarDemo=()=>{setTexto(DEMO_DOCX);setNomeLivro('Teoria Geral do Processo');setArea('Direito Processual Civil');setAutores('Ada Pellegrini Grinover');setTab('texto');};
+
+  const gerar=useCallback(async()=>{
+    if(!texto.trim())return;
+    setStatus('loading');setFallback(null);setDiag(null);
+    try{
+      const proj={nome:nomeLivro.trim(),area:area.trim(),autores:autores.trim(),capsOk:[],capsProx:[]};
+      const result=await gerarDocx(texto,nomeLivro||'Documento',proj);
+      setDiag(result.diagnostics);if(result.dataUri)setFallback(result);
+      setStatus('done');setTimeout(()=>setStatus('idle'),7000);
+    }catch(e){console.error(e);setStatus('error');setTimeout(()=>setStatus('idle'),4000);}
+  },[texto,nomeLivro,area,autores]);
+
+  const C={cream:'#f7f3ec',navy:'#1a2744',gold:'#c49a2a',border:'#d8d1c4',textPri:'#0f0e0c',textSec:'#5a5446',textTer:'#8a8278',green:'#166534',red:'#991b1b'};
+  const inp={width:'100%',padding:'8px 12px',border:`1px solid ${C.border}`,borderRadius:4,fontFamily:'Georgia,serif',fontSize:13,color:C.textPri,background:C.cream,outline:'none',boxSizing:'border-box'};
+  const btnColors={idle:{bg:C.red,txt:'white'},loading:{bg:'#6b7280',txt:'white'},done:{bg:C.green,txt:'white'},error:{bg:'#b91c1c',txt:'white'}};
+  const bc=btnColors[status];
+
+  return(
+    <div style={{height:'100%',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      {/* Top bar */}
+      <div style={{background:C.navy,padding:'13px 22px',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <span style={{color:C.gold,fontFamily:'monospace',fontWeight:700,fontSize:13,letterSpacing:'.12em'}}>JURDOCX ENGINE</span>
+          <span style={{background:'rgba(196,154,42,.15)',border:'1px solid rgba(196,154,42,.35)',color:C.gold,fontSize:9,padding:'2px 8px',borderRadius:2,fontFamily:'monospace',letterSpacing:'.08em'}}>v1 · FASE 0</span>
+        </div>
+        <span style={{fontSize:10,color:'rgba(255,255,255,.3)',fontFamily:'monospace'}}>Times NR · A4 · footnotes XML reais · ZIP puro</span>
+      </div>
+
+      <div style={{flex:1,overflowY:'auto',padding:'22px 18px',maxWidth:860,width:'100%',margin:'0 auto',boxSizing:'border-box'}}>
+
+        {/* Metadados */}
+        <div style={{background:'white',border:`1px solid ${C.border}`,borderRadius:6,marginBottom:14,overflow:'hidden'}}>
+          <div style={{background:'#f0ebe0',borderBottom:`1px solid ${C.border}`,padding:'9px 18px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+            <span style={{fontSize:10,fontFamily:'monospace',fontWeight:700,letterSpacing:'.08em',textTransform:'uppercase',color:C.navy}}>Metadados do documento</span>
+            <button onClick={carregarDemo} style={{background:'transparent',border:`1px solid ${C.border}`,borderRadius:3,padding:'4px 12px',fontSize:10,fontFamily:'monospace',cursor:'pointer',color:C.textSec}}>📄 carregar demo</button>
+          </div>
+          <div style={{padding:'16px 18px'}}>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
+              <div>
+                <label style={{fontSize:10,fontFamily:'monospace',color:C.textTer,display:'block',marginBottom:4,textTransform:'uppercase',letterSpacing:'.06em'}}>Nome do livro / obra</label>
+                <input style={inp} value={nomeLivro} onChange={e=>setNomeLivro(e.target.value)} placeholder="Ex: Teoria Geral do Processo"/>
+              </div>
+              <div>
+                <label style={{fontSize:10,fontFamily:'monospace',color:C.textTer,display:'block',marginBottom:4,textTransform:'uppercase',letterSpacing:'.06em'}}>Área jurídica</label>
+                <input style={inp} value={area} onChange={e=>setArea(e.target.value)} placeholder="Ex: Direito Processual Civil"/>
+              </div>
+            </div>
+            <div>
+              <label style={{fontSize:10,fontFamily:'monospace',color:C.textTer,display:'block',marginBottom:4,textTransform:'uppercase',letterSpacing:'.06em'}}>Autores</label>
+              <input style={inp} value={autores} onChange={e=>setAutores(e.target.value)} placeholder="Ex: Ada Pellegrini Grinover"/>
+            </div>
+          </div>
+        </div>
+
+        {/* Editor + Diagnóstico */}
+        <div style={{background:'white',border:`1px solid ${C.border}`,borderRadius:6,marginBottom:14,overflow:'hidden'}}>
+          <div style={{display:'flex',borderBottom:`1px solid ${C.border}`,background:'#f0ebe0'}}>
+            {[['texto','Texto'],['diag','Diagnóstico']].map(([id,label])=>(
+              <button key={id} onClick={()=>setTab(id)} style={{padding:'9px 20px',fontSize:10,fontFamily:'monospace',letterSpacing:'.06em',textTransform:'uppercase',border:'none',background:tab===id?'white':'transparent',cursor:'pointer',color:tab===id?C.navy:C.textTer,fontWeight:tab===id?700:400,borderBottom:tab===id?`2px solid ${C.gold}`:'2px solid transparent',marginBottom:-1,transition:'all .15s'}}>{label}{id==='diag'&&analise?` (${analise.palavras.toLocaleString('pt-BR')} pal.)`:''}</button>
+            ))}
+          </div>
+
+          {tab==='texto'&&(
+            <div style={{padding:'16px 18px'}}>
+              <label style={{fontSize:10,fontFamily:'monospace',color:C.textTer,display:'block',marginBottom:6,textTransform:'uppercase',letterSpacing:'.06em'}}>Conteúdo do capítulo — markdown jurídico</label>
+              <textarea value={texto} onChange={e=>setTexto(e.target.value)}
+                style={{width:'100%',minHeight:300,padding:'12px 14px',border:`1px solid ${C.border}`,borderRadius:4,fontFamily:'Georgia,serif',fontSize:13,color:C.textPri,background:'#faf7f0',outline:'none',resize:'vertical',lineHeight:1.75,boxSizing:'border-box'}}
+                placeholder={'Cole o texto gerado pelo JurObra ou JurPeça...\n\nSuportes:\n  Capítulo I\n  TÍTULO EM CAIXA ALTA\n  EMENTA_CAP: resumo\n  **Seção em negrito**\n  Parágrafo com nota¹\n  > Citação jurisprudencial\n  --- separador\n  ② NOTAS DE RODAPÉ\n  ¹ Autor, Obra, editora, ano, p. XX.'}
+              />
+              <div style={{marginTop:6,fontSize:10,color:C.textTer,fontFamily:'monospace'}}>
+                Capítulo · TÍTULO · EMENTA_CAP · **seção** · parágrafo · &gt; citação · ¹²³ notas · ② NOTAS DE RODAPÉ
+              </div>
+            </div>
+          )}
+
+          {tab==='diag'&&(
+            <div style={{padding:'16px 18px'}}>
+              {!analise?(
+                <div style={{textAlign:'center',padding:'40px 0',color:C.textTer,fontSize:13}}>Cole ou carregue um texto para ver o diagnóstico</div>
+              ):(
+                <>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8,marginBottom:16}}>
+                    {[[analise.palavras.toLocaleString('pt-BR'),'palavras'],[analise.paragrafos,'parágrafos'],[analise.secoes,'seções'],[analise.notasEncontradas,'notas rodapé']].map(([n,l],i)=>(
+                      <div key={i} style={{background:'#f0ebe0',borderRadius:4,padding:'12px 0',textAlign:'center',border:`1px solid ${C.border}`}}>
+                        <div style={{fontSize:22,fontWeight:700,color:C.navy,lineHeight:1}}>{n}</div>
+                        <div style={{fontSize:10,fontFamily:'monospace',color:C.textTer,marginTop:4,letterSpacing:'.04em'}}>{l}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{fontSize:12,lineHeight:1.8,color:C.textSec}}>
+                    {analise.capituloDetectado&&<div style={{marginBottom:6}}><span style={{fontFamily:'monospace',color:C.textTer}}>capítulo: </span><strong>{analise.capituloDetectado}</strong></div>}
+                    {analise.titulos.length>0&&(
+                      <div style={{marginBottom:6}}>
+                        <span style={{fontFamily:'monospace',color:C.textTer}}>títulos CAIXA ALTA: </span>
+                        {analise.titulos.map((t,i)=><span key={i} style={{display:'inline-block',background:'#f0ebe0',border:`1px solid ${C.border}`,borderRadius:2,padding:'1px 7px',marginRight:5,marginBottom:4,fontSize:10,fontFamily:'monospace'}}>{t}</span>)}
+                      </div>
+                    )}
+                    {analise.notasEncontradas===0&&(
+                      <div style={{marginTop:8,padding:'8px 12px',background:'#fffbeb',border:'1px solid #fcd34d',borderRadius:4,fontSize:11,color:'#92400e',fontFamily:'monospace'}}>
+                        ⚠ Nenhuma nota de rodapé detectada. Adicione a seção ② NOTAS DE RODAPÉ ao final do texto.
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Ação */}
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:12}}>
+          <div style={{fontSize:11,fontFamily:'monospace',color:C.textTer}}>
+            {analise?`${analise.palavras.toLocaleString('pt-BR')} palavras · ${analise.notasEncontradas} notas · pronto para exportar`:'Aguardando texto...'}
+          </div>
+          <button onClick={gerar} disabled={status==='loading'||!texto.trim()}
+            style={{padding:'11px 32px',background:bc.bg,color:bc.txt,border:'none',borderRadius:4,fontSize:13,fontFamily:'Georgia,serif',fontWeight:700,cursor:status==='loading'?'not-allowed':'pointer',transition:'background .2s',letterSpacing:'.02em'}}>
+            {{idle:'⬇  Gerar .docx',loading:'⏳  Gerando...',done:'✅  Gerado!',error:'❌  Erro'}[status]}
+          </button>
+        </div>
+
+        {/* Resultado */}
+        {status==='done'&&diag&&(
+          <div style={{background:'#f0fdf4',border:'1px solid #86efac',borderRadius:4,padding:'12px 16px',marginBottom:12}}>
+            <div style={{fontSize:11,fontFamily:'monospace',color:C.green,fontWeight:700,marginBottom:6}}>✅ DOCX GERADO COM SUCESSO</div>
+            <div style={{fontSize:12,color:C.green,lineHeight:1.7}}>
+              {diag.bodyLines} linhas processadas · <strong>{diag.fnCount} notas de rodapé reais</strong> inseridas no XML Word
+            </div>
+            {fallback&&<a href={fallback.dataUri} download={fallback.filename} style={{display:'inline-block',marginTop:8,fontSize:11,color:'#0369a1',fontFamily:'monospace'}}>↓ Link manual: {fallback.filename}</a>}
+          </div>
+        )}
+        {status==='error'&&(
+          <div style={{background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:4,padding:'12px 16px',marginBottom:12,fontSize:12,color:C.red,fontFamily:'monospace'}}>
+            ❌ Erro ao gerar o arquivo. Verifique o console do navegador.
+          </div>
+        )}
+
+        {/* Rodapé informativo */}
+        <div style={{padding:'13px 16px',background:'white',border:`1px solid ${C.border}`,borderRadius:4,fontSize:10,fontFamily:'monospace',color:C.textTer,lineHeight:1.8}}>
+          <strong style={{color:C.navy}}>JurDocx Engine v1</strong> — Fase 0 · Motor integrado ao JurEdit v2<br/>
+          <span style={{color:C.textTer}}>Recebe:</span> markdown jurídico &nbsp;·&nbsp; <span style={{color:C.textTer}}>Entrega:</span> .docx Times NR 12pt, A4, footnotes XML, cabeçalho/rodapé<br/>
+          Consumido por: <span style={{color:C.gold}}>JurObra</span> &nbsp;·&nbsp; <span style={{color:'#5DCAA5'}}>JurPeça</span> &nbsp;·&nbsp; <span style={{color:'#7F77DD'}}>JurArtigo</span>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
 // ── APP SHELL ─────────────────────────────────────────────────────
 function App(){
   const[hasKey,setHasKey]=useState(!!getKey());
@@ -718,12 +1035,14 @@ function App(){
     {id:'fin',icon:'📑',label:'JurFinanceiro',desc:'Bancário · MC',cor:'#0369a1'},
     {id:'bib',icon:'📖',label:'JurBiblioteca',desc:'Doutrina · ABNT',cor:'#c49a2a'},
     {id:'jur',icon:'🏛️',label:'JurJurisprudência',desc:'STF · STJ · TST',cor:'#0369a1'},
+    {id:'docx',icon:'📄',label:'JurDocx Engine',desc:'Gerar .docx · Notas · ZIP',cor:'#166534'},
   ];
 
   const renderTool=()=>{
     if(activeId==='hub')return <HubTool/>;
     if(activeId==='bib')return <BibTool/>;
     if(activeId==='jur')return <JurTool/>;
+    if(activeId==='docx')return <JurDocxEngine/>;
     const tool=TOOLS[activeId];
     if(!tool)return null;
     return <ChatTool key={activeId} tool={tool}/>;
