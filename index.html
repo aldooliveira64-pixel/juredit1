@@ -1656,17 +1656,6 @@ Ao final, liste apenas os capítulos:
   );
 }
 
-// ── RichText ──────────────────────────────────────────────────────
-  return(<div style={{lineHeight:1.75,fontSize:13}}>
-    {content.split("\n").map((line,i)=>{
-      if(!line.trim())return<div key={i} style={{height:8}}/>;
-      const parts=[];const re=/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;let last=0,m;
-      while((m=re.exec(line))!==null){if(m.index>last)parts.push(<span key={last}>{line.slice(last,m.index)}</span>);const tok=m[0];if(tok.startsWith("**"))parts.push(<strong key={m.index}>{tok.slice(2,-2)}</strong>);else if(tok.startsWith("*"))parts.push(<em key={m.index}>{tok.slice(1,-1)}</em>);else parts.push(<code key={m.index} style={{background:"rgba(0,0,0,.07)",padding:"1px 5px",borderRadius:3,fontFamily:"monospace",fontSize:11}}>{tok.slice(1,-1)}</code>);last=m.index+tok.length;}
-      if(last<line.length)parts.push(<span key={last}>{line.slice(last)}</span>);
-      return<div key={i}>{parts}</div>;
-    })}
-  </div>);
-}
 
 // ═══════════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
@@ -2376,36 +2365,6 @@ Tese 3: [nome da tese] — [fundamento + forma de uso]
   },
 };
 
-// ── Leitura de arquivos ────────────────────────────────────────────
-async function lerArquivo(file) {
-  const ext = file.name.split(".").pop().toLowerCase();
-  if (ext === "pdf") {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const dataUrl = e.target.result;
-        const base64 = dataUrl.split(",")[1];
-        resolve({ tipo: "pdf", base64, nome: file.name, size: file.size });
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }
-  if (ext === "docx" || ext === "doc") {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = async (e) => {
-        try {
-          const result = await mammoth.extractRawText({ arrayBuffer: e.target.result });
-          resolve({ tipo: "docx", texto: result.value, nome: file.name, size: file.size });
-        } catch (err) { reject(err); }
-      };
-      reader.onerror = reject;
-      reader.readAsArrayBuffer(file);
-    });
-  }
-  throw new Error("Formato não suportado. Use PDF ou DOCX.");
-}
 
 // ── Montar content do documento para a API ─────────────────────────
 function montarContentDoc(doc, modoKey, instrucaoExtra) {
@@ -2447,27 +2406,6 @@ REGRAS ABSOLUTAS:
 ESTILO: técnico-jurídico preciso · voz impessoal · termos latinos em *itálico* · conectores clássicos`;
 }
 
-// ── RichText ──────────────────────────────────────────────────────
-  const lines = content.split("\n");
-  return (
-    <div style={{ lineHeight: 1.75, fontSize: 13 }}>
-      {lines.map((line, i) => {
-        if (!line.trim()) return <div key={i} style={{ height: 8 }} />;
-        const parts = []; const re = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g; let last = 0, m;
-        while ((m = re.exec(line)) !== null) {
-          if (m.index > last) parts.push(<span key={last}>{line.slice(last, m.index)}</span>);
-          const tok = m[0];
-          if (tok.startsWith("**")) parts.push(<strong key={m.index}>{tok.slice(2,-2)}</strong>);
-          else if (tok.startsWith("*")) parts.push(<em key={m.index}>{tok.slice(1,-1)}</em>);
-          else parts.push(<code key={m.index} style={{ background: "rgba(0,0,0,.07)", padding: "1px 5px", borderRadius: 3, fontFamily: "monospace", fontSize: 11 }}>{tok.slice(1,-1)}</code>);
-          last = m.index + tok.length;
-        }
-        if (last < line.length) parts.push(<span key={last}>{line.slice(last)}</span>);
-        return <div key={i}>{parts}</div>;
-      })}
-    </div>
-  );
-}
 
 // ═══════════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
