@@ -1320,16 +1320,16 @@ function JurDocxEngine(){
 // ═══════════════════════════════════════════════════════════════════
 
 // ── DOCX ENGINE (Fase 0 embutida) ─────────────────────────────────
-function parseNN(l){const r=s2n(l);if(r)return{num:r.n,text:l.slice(r.len).trim()};const m=l.match(/^(\d{1,2})[.\):\s]\s*(.+)/);if(m)return{num:parseInt(m[1]),text:m[2]};return null;}
-function wFN(id,txt){const sz=18;const F=`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>`;const pts=[];const re=/\*([^*]+)\*/g;let last=0,m;while((m=re.exec(txt))!==null){if(m.index>last)pts.push({t:txt.slice(last,m.index),i:false});pts.push({t:m[1],i:true});last=m.index+m[0].length;}if(last<txt.length)pts.push({t:txt.slice(last),i:false});const hi=pts.some(p=>p.i);let rx;if(!hi){rx=`<w:r><w:rPr>${F}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t xml:space="preserve"> ${esc(pts.map(p=>p.t).join(""))}</w:t></w:r>`;}else{rx=pts.map(p=>{const rp=[p.i?`<w:i/><w:iCs/>`:"",F,`<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join("");return`<w:r><w:rPr>${rp}</w:rPr><w:t xml:space="preserve">${esc(p.t)}</w:t></w:r>`;}).join("");}return`<w:footnote w:id="${id}"><w:p><w:pPr><w:spacing w:line="220" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r>${rx}</w:p></w:footnote>`;}
-function wFNR(id){return`<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="${id}"/></w:r>`;}
-function pIF(str){str=str.replace(/\[Fonte:[^\]]+\]/g,"");const out=[],re=/(\*\*[^*]+\*\*|\*[^*]+\*|[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\[(\d{1,2})\])/g;let last=0,m;while((m=re.exec(str))!==null){if(m.index>last)out.push({text:str.slice(last,m.index),bold:false,italic:false,sup:false,fnNum:null});const tok=m[0];if(/^\*\*[^*]+\*\*$/.test(tok))out.push({text:tok.slice(2,-2),bold:true,italic:false,sup:false,fnNum:null});else if(/^\*[^*]+\*$/.test(tok))out.push({text:tok.slice(1,-1),bold:false,italic:true,sup:false,fnNum:null});else{let n=null;const r=s2n(tok);if(r){n=r.n;}else{const nm=tok.match(/^\[(\d{1,2})\]$/);if(nm)n=parseInt(nm[1]);}out.push({text:tok,bold:false,italic:false,sup:true,fnNum:n});}last=m.index+tok.length;}if(last<str.length)out.push({text:str.slice(last),bold:false,italic:false,sup:false,fnNum:null});return out.filter(r=>r.text||(r.sup&&r.fnNum));}
-function wPFN(raw,o={},fm=null){const al=o.center?"center":(o.align||"both");let ix="";if(o.indent)ix=`<w:ind w:firstLine="${o.indent}"/>`;if(o.indentLeft||o.indentRight)ix=`<w:ind ${o.indentLeft?`w:left="${o.indentLeft}"`:""}  ${o.indentRight?`w:right="${o.indentRight}"`:""}  />`;const pp=`<w:pPr><w:spacing w:before="${o.spaceBefore||0}" w:after="${o.spaceAfter||60}" w:line="${o.lineVal||276}" w:lineRule="auto"/>${ix}<w:jc w:val="${al}"/></w:pPr>`;const toks=pIF(raw);const pt=o.sizePt||12;const sz=pt*2;const F=`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>`;const runs=toks.map(r=>{if(r.sup&&r.fnNum&&r.fnNum>0&&fm){if(fm[r.fnNum])return wFNR(r.fnNum);fm[r.fnNum]=`Nota ${r.fnNum}.`;return wFNR(r.fnNum);}const rp=[r.bold?`<w:b/><w:bCs/>`:"",r.italic?`<w:i/><w:iCs/>`:"",r.sup?`<w:vertAlign w:val="superscript"/>`:"",F,`<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join("");return`<w:r><w:rPr>${rp}</w:rPr><w:t xml:space="preserve">${esc(r.text||"")}</w:t></w:r>`;}).join("");return`<w:p>${pp}${runs}</w:p>`;}
+function parseNN_o(l){const r=s2n(l);if(r)return{num:r.n,text:l.slice(r.len).trim()};const m=l.match(/^(\d{1,2})[.\):\s]\s*(.+)/);if(m)return{num:parseInt(m[1]),text:m[2]};return null;}
+function wFN_o(id,txt){const sz=18;const F=`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>`;const pts=[];const re=/\*([^*]+)\*/g;let last=0,m;while((m=re.exec(txt))!==null){if(m.index>last)pts.push({t:txt.slice(last,m.index),i:false});pts.push({t:m[1],i:true});last=m.index+m[0].length;}if(last<txt.length)pts.push({t:txt.slice(last),i:false});const hi=pts.some(p=>p.i);let rx;if(!hi){rx=`<w:r><w:rPr>${F}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t xml:space="preserve"> ${esc(pts.map(p=>p.t).join(""))}</w:t></w:r>`;}else{rx=pts.map(p=>{const rp=[p.i?`<w:i/><w:iCs/>`:"",F,`<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join("");return`<w:r><w:rPr>${rp}</w:rPr><w:t xml:space="preserve">${esc(p.t)}</w:t></w:r>`;}).join("");}return`<w:footnote w:id="${id}"><w:p><w:pPr><w:spacing w:line="220" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r>${rx}</w:p></w:footnote>`;}
+function wFNR_o(id){return`<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="${id}"/></w:r>`;}
+function pIF_o(str){str=str.replace(/\[Fonte:[^\]]+\]/g,"");const out=[],re=/(\*\*[^*]+\*\*|\*[^*]+\*|[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\[(\d{1,2})\])/g;let last=0,m;while((m=re.exec(str))!==null){if(m.index>last)out.push({text:str.slice(last,m.index),bold:false,italic:false,sup:false,fnNum:null});const tok=m[0];if(/^\*\*[^*]+\*\*$/.test(tok))out.push({text:tok.slice(2,-2),bold:true,italic:false,sup:false,fnNum:null});else if(/^\*[^*]+\*$/.test(tok))out.push({text:tok.slice(1,-1),bold:false,italic:true,sup:false,fnNum:null});else{let n=null;const r=s2n(tok);if(r){n=r.n;}else{const nm=tok.match(/^\[(\d{1,2})\]$/);if(nm)n=parseInt(nm[1]);}out.push({text:tok,bold:false,italic:false,sup:true,fnNum:n});}last=m.index+tok.length;}if(last<str.length)out.push({text:str.slice(last),bold:false,italic:false,sup:false,fnNum:null});return out.filter(r=>r.text||(r.sup&&r.fnNum));}
+function wPFN_o(raw,o={},fm=null){const al=o.center?"center":(o.align||"both");let ix="";if(o.indent)ix=`<w:ind w:firstLine="${o.indent}"/>`;if(o.indentLeft||o.indentRight)ix=`<w:ind ${o.indentLeft?`w:left="${o.indentLeft}"`:""}  ${o.indentRight?`w:right="${o.indentRight}"`:""}  />`;const pp=`<w:pPr><w:spacing w:before="${o.spaceBefore||0}" w:after="${o.spaceAfter||60}" w:line="${o.lineVal||276}" w:lineRule="auto"/>${ix}<w:jc w:val="${al}"/></w:pPr>`;const toks=pIF_o(raw);const pt=o.sizePt||12;const sz=pt*2;const F=`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>`;const runs=toks.map(r=>{if(r.sup&&r.fnNum&&r.fnNum>0&&fm){if(fm[r.fnNum])return wFNR_o(r.fnNum);fm[r.fnNum]=`Nota ${r.fnNum}.`;return wFNR_o(r.fnNum);}const rp=[r.bold?`<w:b/><w:bCs/>`:"",r.italic?`<w:i/><w:iCs/>`:"",r.sup?`<w:vertAlign w:val="superscript"/>`:"",F,`<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join("");return`<w:r><w:rPr>${rp}</w:rPr><w:t xml:space="preserve">${esc(r.text||"")}</w:t></w:r>`;}).join("");return`<w:p>${pp}${runs}</w:p>`;}
 
 async function gerarDocxObra(rawText,proj){
   const lines=rawText.split("\n");const noteIdx=lines.findIndex(l=>/^②?\s*NOTAS?\s*DE\s*RODAP/i.test(l.trim()));
   const bodyLines=noteIdx>-1?lines.slice(0,noteIdx):lines;const fm={};
-  const tryFN=(sl)=>{for(const ln of sl){const r=ln.trim();if(!r)continue;const p=parseNN(r);if(p&&p.text.length>8)fm[p.num]=p.text;}};
+  const tryFN=(sl)=>{for(const ln of sl){const r=ln.trim();if(!r)continue;const p=parseNN_o(r);if(p&&p.text.length>8)fm[p.num]=p.text;}};
   if(noteIdx>-1)tryFN(lines.slice(noteIdx+1));
   if(!Object.keys(fm).length)tryFN(lines.filter(l=>{const r=l.trim();return(SC.includes(r[0])||/^\d{1,2}[.\)]\s/.test(r))&&r.length<400;}));
   if(!Object.keys(fm).length)tryFN(lines.slice(-80));
@@ -1356,17 +1356,17 @@ async function gerarDocxObra(rawText,proj){
     if(/^EMENTA_CAP:/i.test(raw)){paras.push(wPara([{text:raw.replace(/^EMENTA_CAP:\s*/i,""),bold:false,italic:true,sup:false}],{align:"both",sizePt:EMENTA,spaceAfter:0,lineVal:LINE_S,indentLeft:1440,indentRight:1440}));continue;}
     if(/^\*\*[^*]+\*\*$/.test(raw)){paras.push(wPara([{text:raw.replace(/\*\*/g,""),bold:true,italic:false,sup:false}],{align:"left",sizePt:SEC,spaceBefore:420,spaceAfter:180,lineVal:LINE_B}));continue;}
     if(/^#{1,3}\s/.test(raw)){paras.push(wPara([{text:raw.replace(/^#+\s/,""),bold:true,italic:false,sup:false}],{align:"left",sizePt:SEC,spaceBefore:420,spaceAfter:180,lineVal:LINE_B}));continue;}
-    if(/^>\s*/.test(raw)){paras.push(wPFN(raw.replace(/^>\s*/,""),{align:"both",sizePt:NOTE,spaceBefore:120,spaceAfter:120,lineVal:LINE_S,indentLeft:709,indentRight:709},fm));continue;}
+    if(/^>\s*/.test(raw)){paras.push(wPFN_o(raw.replace(/^>\s*/,""),{align:"both",sizePt:NOTE,spaceBefore:120,spaceAfter:120,lineVal:LINE_S,indentLeft:709,indentRight:709},fm));continue;}
     const rc=raw.replace(/\*\*/g,"").trim();
     if(/^[①②③④⑤⑥⑦⑧]/.test(rc)||/^(NOTAS?\s*DE\s*RODAP|REFERÊNCIAS|AVALIAÇÃO\s*TÉCNICA)/i.test(rc))continue;
-    if((SC.includes(raw[0])||/^\d{1,2}[.\)]\s/.test(raw))&&raw.length<400){const p=parseNN(raw);if(p&&p.text.length>10)continue;}
-    paras.push(wPFN(raw,{align:"both",sizePt:BODY,indent:RECUO,spaceBefore:0,spaceAfter:60,lineVal:LINE_B},fm));
+    if((SC.includes(raw[0])||/^\d{1,2}[.\)]\s/.test(raw))&&raw.length<400){const p=parseNN_o(raw);if(p&&p.text.length>10)continue;}
+    paras.push(wPFN_o(raw,{align:"both",sizePt:BODY,indent:RECUO,spaceBefore:0,spaceAfter:60,lineVal:LINE_B},fm));
   }
   const capLine=bodyLines.find(l=>/^CAPÍTULO\s+\d+/i.test(l.trim()))||"";
   const titLine=bodyLines.find((l,i)=>i>0&&l.trim()&&l.trim()===l.trim().toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(l.trim()))||"";
   const hTxt=esc(([capLine.trim(),titLine.trim()].filter(Boolean).join(" — ")||proj.nome||"Edição Acadêmica").slice(0,80));
   const fnE=Object.entries(fm).sort((a,b)=>Number(a[0])-Number(b[0]));
-  const FNX=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>${fnE.map(([id,t])=>wFN(Number(id),t)).join("")}</w:footnotes>`;
+  const FNX=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>${fnE.map(([id,t])=>wFN_o(Number(id),t)).join("")}</w:footnotes>`;
   const docXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${paras.join("")}<w:sectPr><w:headerReference w:type="default" r:id="rH1"/><w:footerReference w:type="default" r:id="rF1"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1800" w:right="1800" w:bottom="1800" w:left="1800" w:header="708" w:footer="708"/><w:pgNumType/></w:sectPr></w:body></w:document>`;
   const HDR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="right"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:after="80"/></w:pPr><w:r><w:rPr><w:i/><w:color w:val="555555"/><w:sz w:val="16"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>${hTxt}</w:t></w:r></w:p></w:hdr>`;
   const FTR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="center"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:before="80"/></w:pPr><w:r><w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>— </w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r><w:r><w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t> —</w:t></w:r></w:p></w:ftr>`;
@@ -1389,9 +1389,7 @@ async function gerarDocxObra(rawText,proj){
 }
 
 // ── Storage API ────────────────────────────────────────────────────
-const K_PROJ = "jura-obra-project-v1";
-const K_JUR  = "jura-jur-cache";
-const K_BIB  = "jura-bib-cache";
+// K_PROJ, K_JUR, K_BIB já declarados globalmente
 const PROJ_DEFAULT = { nome:"", area:"", autores:"", capsOk:[], capsProx:[] };
 
 async function sGet(key) {
@@ -2208,10 +2206,10 @@ const TIPOS_PECA = {
 };
 
 const AREAS = ["Direito Processual Civil","Direito Processual Penal","Direito Civil","Direito Penal","Direito Tributário","Direito Administrativo","Direito Constitucional","Direito do Trabalho","Direito Empresarial","Direito do Consumidor","Direito Ambiental","Direito Previdenciário","Direito Digital","Direito Imobiliário","Direito Bancário","Mercado de Capitais"];
-const NIVEIS = [{v:"Operadores do Direito (juízes, advogados, promotores)",l:"Operadores do Direito"},{v:"Doutorado e tratados acadêmicos de referência",l:"Doutorado / Tratado"},{v:"Mestrado e pós-graduação stricto sensu",l:"Mestrado / Pós-Grad."},{v:"Graduação avançada",l:"Graduação Avançada"}];
+const NIVEIS_P = [{v:"Operadores do Direito (juízes, advogados, promotores)",l:"Operadores do Direito"},{v:"Doutorado e tratados acadêmicos de referência",l:"Doutorado / Tratado"},{v:"Mestrado e pós-graduação stricto sensu",l:"Mestrado / Pós-Grad."},{v:"Graduação avançada",l:"Graduação Avançada"}];
 
 // ── Modos de análise de documento ─────────────────────────────────
-const MODOS_DOC = {
+const MODOS_PECA = {
   contestacao: {
     label:"Contestação / Defesa",
     icon:"🛡️",
@@ -2411,7 +2409,7 @@ async function lerArquivo(file) {
 
 // ── Montar content do documento para a API ─────────────────────────
 function montarContentDoc(doc, modoKey, instrucaoExtra) {
-  const modo = MODOS_DOC[modoKey];
+  const modo = MODOS_PECA[modoKey];
   const instrucao = modo.instrucao + (instrucaoExtra ? `\n\nINSTRUÇÃO ADICIONAL DO USUÁRIO:\n${instrucaoExtra}` : "");
 
   if (doc.tipo === "pdf") {
@@ -2429,7 +2427,7 @@ function montarContentDoc(doc, modoKey, instrucaoExtra) {
 }
 
 // ── System prompt base ─────────────────────────────────────────────
-function buildSystem(tipoKey, subtipo, area, nivel, temDoc) {
+function buildSystemPeca(tipoKey, subtipo, area, nivel, temDoc) {
   const tipo = TIPOS_PECA[tipoKey];
   return `Você é JurPeça Excellence v2 — redator e analista jurídico de máximo padrão técnico, com leitura de documentos e pesquisa web em tempo real.
 
@@ -2478,7 +2476,7 @@ function JurPecaV2() {
   const [tipoKey, setTipoKey]   = useState("peticao");
   const [subtipo, setSubtipo]   = useState(TIPOS_PECA.peticao.subtipos[0]);
   const [area, setArea]         = useState("Direito Processual Civil");
-  const [nivel, setNivel]       = useState(NIVEIS[0].v);
+  const [nivel, setNivel]       = useState(NIVEIS_P[0].v);
   const [titulo, setTitulo]     = useState("");
   const [msgs, setMsgs]         = useState([]);
   const [input, setInput]       = useState("");
@@ -2556,7 +2554,7 @@ function JurPecaV2() {
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
           max_tokens: 1000,
-          system: buildSystem(tipoKey, subtipo, area, nivel, docs.length > 0),
+          system: buildSystemPeca(tipoKey, subtipo, area, nivel, docs.length > 0),
           messages: apiMsgs,
           tools: [{ type: "web_search_20250305", name: "web_search" }],
         }),
@@ -2624,7 +2622,7 @@ function JurPecaV2() {
               </select>
               <div style={{ fontSize:9,fontFamily:"monospace",color:C.textTer,textTransform:"uppercase",letterSpacing:".07em",marginBottom:4 }}>Nível</div>
               <select value={nivel} onChange={e=>setNivel(e.target.value)} style={{ width:"100%",padding:"6px 8px",border:`1px solid ${C.border}`,borderRadius:4,fontFamily:"Georgia,serif",fontSize:12,color:C.textPri,background:C.bg,outline:"none" }}>
-                {NIVEIS.map(n=><option key={n.v} value={n.v}>{n.l}</option>)}
+                {NIVEIS_P.map(n=><option key={n.v} value={n.v}>{n.l}</option>)}
               </select>
             </div>
             {/* Título export */}
@@ -2658,20 +2656,20 @@ function JurPecaV2() {
               </div>
               {/* Modo de análise */}
               <div style={{ display:"flex",gap:6,marginBottom:10,flexWrap:"wrap" }}>
-                {Object.entries(MODOS_DOC).map(([k,m])=>(
+                {Object.entries(MODOS_PECA).map(([k,m])=>(
                   <button key={k} onClick={()=>setModoDoc(k)} style={{ padding:"5px 12px",border:`1px solid ${modoDoc===k?m.cor:C.border}`,borderRadius:20,fontSize:11,fontFamily:"monospace",cursor:"pointer",background:modoDoc===k?`${m.cor}15`:"transparent",color:modoDoc===k?m.cor:C.textSec,transition:"all .15s",fontWeight:modoDoc===k?700:400 }}>
                     {m.icon} {m.label}
                   </button>
                 ))}
               </div>
-              <div style={{ fontSize:11,color:C.textTer,marginBottom:8,padding:"6px 10px",background:`${MODOS_DOC[modoDoc].cor}10`,borderRadius:4,borderLeft:`3px solid ${MODOS_DOC[modoDoc].cor}` }}>
-                {MODOS_DOC[modoDoc].desc}
+              <div style={{ fontSize:11,color:C.textTer,marginBottom:8,padding:"6px 10px",background:`${MODOS_PECA[modoDoc].cor}10`,borderRadius:4,borderLeft:`3px solid ${MODOS_PECA[modoDoc].cor}` }}>
+                {MODOS_PECA[modoDoc].desc}
               </div>
               {/* Drop zone */}
               <div onDrop={handleDrop} onDragOver={handleDragOver}
                 onClick={()=>fileInputRef.current?.click()}
                 style={{ border:`2px dashed ${C.border}`,borderRadius:8,padding:"20px",textAlign:"center",cursor:"pointer",background:"#faf8f4",transition:"all .15s" }}
-                onMouseOver={e=>{e.currentTarget.style.borderColor=MODOS_DOC[modoDoc].cor;e.currentTarget.style.background=`${MODOS_DOC[modoDoc].cor}08`;}}
+                onMouseOver={e=>{e.currentTarget.style.borderColor=MODOS_PECA[modoDoc].cor;e.currentTarget.style.background=`${MODOS_PECA[modoDoc].cor}08`;}}
                 onMouseOut={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.background="#faf8f4";}}>
                 {uploadLoading ? (
                   <div style={{ fontSize:13,color:C.textSec }}>⏳ Lendo arquivo...</div>
@@ -2689,16 +2687,16 @@ function JurPecaV2() {
               {docs.length > 0 && (
                 <div style={{ marginTop:10 }}>
                   {docs.map(d=>(
-                    <div key={d.id} style={{ display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:`${MODOS_DOC[d.modoKey].cor}10`,border:`1px solid ${MODOS_DOC[d.modoKey].cor}30`,borderRadius:6,marginBottom:6 }}>
+                    <div key={d.id} style={{ display:"flex",alignItems:"center",gap:8,padding:"7px 10px",background:`${MODOS_PECA[d.modoKey].cor}10`,border:`1px solid ${MODOS_PECA[d.modoKey].cor}30`,borderRadius:6,marginBottom:6 }}>
                       <span style={{ fontSize:14 }}>{d.tipo==="pdf"?"📕":"📝"}</span>
                       <div style={{ flex:1,minWidth:0 }}>
                         <div style={{ fontSize:12,fontWeight:500,color:C.textPri,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap" }}>{d.nome}</div>
-                        <div style={{ fontSize:10,fontFamily:"monospace",color:MODOS_DOC[d.modoKey].cor }}>
-                          {MODOS_DOC[d.modoKey].icon} {MODOS_DOC[d.modoKey].label} · {d.tipo.toUpperCase()} · {(d.size/1024).toFixed(0)}KB
+                        <div style={{ fontSize:10,fontFamily:"monospace",color:MODOS_PECA[d.modoKey].cor }}>
+                          {MODOS_PECA[d.modoKey].icon} {MODOS_PECA[d.modoKey].label} · {d.tipo.toUpperCase()} · {(d.size/1024).toFixed(0)}KB
                         </div>
                       </div>
                       <select value={d.modoKey} onChange={e=>{const k=e.target.value;setDocs(prev=>prev.map(x=>x.id===d.id?{...x,modoKey:k}:x));}} style={{ fontSize:10,fontFamily:"monospace",border:`1px solid ${C.border}`,borderRadius:4,background:C.bg,padding:"2px 4px",color:C.textSec,outline:"none" }}>
-                        {Object.entries(MODOS_DOC).map(([k,m])=><option key={k} value={k}>{m.icon} {m.label}</option>)}
+                        {Object.entries(MODOS_PECA).map(([k,m])=><option key={k} value={k}>{m.icon} {m.label}</option>)}
                       </select>
                       <button onClick={()=>removerDoc(d.id)} style={{ background:"none",border:"none",cursor:"pointer",color:C.textTer,fontSize:16,padding:"0 4px" }}>×</button>
                     </div>
@@ -2713,8 +2711,8 @@ function JurPecaV2() {
             <div style={{ background:C.white,borderBottom:`1px solid ${C.border}`,padding:"8px 18px",display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",flexShrink:0 }}>
               <span style={{ fontSize:10,fontFamily:"monospace",color:C.textTer }}>Docs carregados:</span>
               {docs.map(d=>(
-                <span key={d.id} style={{ display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",background:`${MODOS_DOC[d.modoKey].cor}12`,border:`1px solid ${MODOS_DOC[d.modoKey].cor}30`,borderRadius:12,fontSize:11,fontFamily:"monospace",color:MODOS_DOC[d.modoKey].cor }}>
-                  {d.tipo==="pdf"?"📕":"📝"} {d.nome.slice(0,25)}{d.nome.length>25?"...":""} · {MODOS_DOC[d.modoKey].icon}
+                <span key={d.id} style={{ display:"inline-flex",alignItems:"center",gap:4,padding:"3px 10px",background:`${MODOS_PECA[d.modoKey].cor}12`,border:`1px solid ${MODOS_PECA[d.modoKey].cor}30`,borderRadius:12,fontSize:11,fontFamily:"monospace",color:MODOS_PECA[d.modoKey].cor }}>
+                  {d.tipo==="pdf"?"📕":"📝"} {d.nome.slice(0,25)}{d.nome.length>25?"...":""} · {MODOS_PECA[d.modoKey].icon}
                   <button onClick={()=>removerDoc(d.id)} style={{ background:"none",border:"none",cursor:"pointer",color:"inherit",fontSize:12,padding:"0 0 0 4px",lineHeight:1 }}>×</button>
                 </span>
               ))}
@@ -2733,7 +2731,7 @@ function JurPecaV2() {
                 </div>
                 {/* Card de destaque dos modos */}
                 <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16,textAlign:"left" }}>
-                  {Object.entries(MODOS_DOC).map(([k,m])=>(
+                  {Object.entries(MODOS_PECA).map(([k,m])=>(
                     <button key={k} onClick={()=>{setModoDoc(k);setShowUpload(true);}} style={{ padding:"10px 12px",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer",background:C.white,textAlign:"left",fontSize:12,color:C.textSec,fontFamily:"Georgia,serif",lineHeight:1.5,transition:"all .12s" }}
                       onMouseOver={e=>{e.currentTarget.style.borderColor=m.cor;e.currentTarget.style.color=C.textPri;}}
                       onMouseOut={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSec;}}>
