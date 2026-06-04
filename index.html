@@ -265,7 +265,7 @@ const TOOLS={
       {ic:'🛡️',l:'Contestação (upload PI)',p:'Você recebeu uma PETIÇÃO INICIAL. Analise todos os pedidos, fundamentos e vícios. Elabore CONTESTAÇÃO COMPLETA: I — PRELIMINARES, II — IMPUGNAÇÃO DOS FATOS, III — DO MÉRITO, IV — DOS PEDIDOS. ② NOTAS DE RODAPÉ mínimo 15 notas.'},
       {ic:'⛏️',l:'Mineração de julgado',p:'Você recebeu um ACÓRDÃO. Extraia: ① RATIO DECIDENDI, ② OBITER DICTA, ③ VOTOS VENCIDOS, ④ LACUNAS NÃO ENFRENTADAS, ⑤ DISTINGUISHING, ⑥ TESES EXCLUSIVAS PARA APROVEITAMENTO ESTRATÉGICO. ② NOTAS DE RODAPÉ.'},
     ]},
-  bib:{id:'bib',icon:'📖',label:'JurBiblioteca',cor:'#c49a2a',desc:'Doutrina · ABNT · 97 obras'},
+  bib:{id:'bib',icon:'📖',label:'JurBiblioteca',cor:'#c49a2a',desc:'Doutrina · ABNT · 78 obras'},
   jur:{id:'jur',icon:'🏛️',label:'JurJurisprudência',cor:'#0369a1',desc:'STF · STJ · TST · Súmulas'},
 };
 
@@ -973,46 +973,236 @@ function HubTool(){
 
 
 // ── BIB TOOL ─────────────────────────────────────────────────────
+// ── JURBIBLIOTECA v2 — 80 obras clássicas ─────────────────────────
+async function bibCacheAdd(texto){
+  try{const cached=ls(K_BIB,[]);if(!Array.isArray(cached))return;if(cached.some(x=>x.texto===texto))return;const nova=[...cached,{id:Date.now(),texto,ts:new Date().toLocaleDateString('pt-BR')}];lsSet(K_BIB,nova);}catch{}
+}
+const CLASSICOS=[
+  // ── PROCESSO CIVIL ──
+  {id:"cgd",   area:"Processo Civil",     autores:"CINTRA, Antônio Carlos de Araújo; GRINOVER, Ada Pellegrini; DINAMARCO, Cândido Rangel", titulo:"Teoria Geral do Processo",                          edicao:"32", cidade:"São Paulo",      editora:"Malheiros",              ano:"2020", tipo:"Livro", tags:["teoria geral","jurisdição","ação","defesa"]},
+  {id:"din1",  area:"Processo Civil",     autores:"DINAMARCO, Cândido Rangel",  titulo:"Instituições de Direito Processual Civil",           volume:"I",  edicao:"9",  cidade:"São Paulo",      editora:"Malheiros",              ano:"2023", tipo:"Livro", tags:["jurisdição","princípios","ação"]},
+  {id:"din2",  area:"Processo Civil",     autores:"DINAMARCO, Cândido Rangel",  titulo:"Instituições de Direito Processual Civil",           volume:"II", edicao:"9",  cidade:"São Paulo",      editora:"Malheiros",              ano:"2023", tipo:"Livro", tags:["competência","partes","litisconsórcio"]},
+  {id:"did1",  area:"Processo Civil",     autores:"DIDIER JR., Fredie",         titulo:"Curso de Direito Processual Civil",                  volume:"I",  edicao:"25", cidade:"Salvador",       editora:"JusPodivm",              ano:"2024", tipo:"Livro", tags:["normas fundamentais","pressupostos","competência"]},
+  {id:"did2",  area:"Processo Civil",     autores:"DIDIER JR., Fredie; BRAGA, Paula Sarno; OLIVEIRA, Rafael Alexandria de", titulo:"Curso de Direito Processual Civil", volume:"II", edicao:"20", cidade:"Salvador", editora:"JusPodivm", ano:"2024", tipo:"Livro", tags:["prova","sentença","coisa julgada"]},
+  {id:"mar1",  area:"Processo Civil",     autores:"MARINONI, Luiz Guilherme; ARENHART, Sérgio Cruz; MITIDIERO, Daniel", titulo:"Curso de Processo Civil", volume:"I", edicao:"11", cidade:"São Paulo", editora:"Thomson Reuters Brasil", ano:"2023", tipo:"Livro", tags:["teoria geral","tutela","CPC"]},
+  {id:"wamb",  area:"Processo Civil",     autores:"WAMBIER, Teresa Arruda Alvim", titulo:"Primeiros Comentários ao Novo Código de Processo Civil", edicao:"2", cidade:"São Paulo", editora:"Thomson Reuters Brasil", ano:"2016", tipo:"Livro", tags:["CPC","comentários"]},
+  {id:"theo",  area:"Processo Civil",     autores:"THEODORO JÚNIOR, Humberto", titulo:"Curso de Direito Processual Civil",                  volume:"I",  edicao:"65", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2024", tipo:"Livro", tags:["processo civil","CPC","competência"]},
+  // ── DIREITO CIVIL ──
+  {id:"gom",   area:"Direito Civil",      autores:"GOMES, Orlando",             titulo:"Introdução ao Direito Civil",                                     edicao:"21", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2016", tipo:"Livro", tags:["pessoas","bens","fatos jurídicos"]},
+  {id:"pmi",   area:"Direito Civil",      autores:"PONTES DE MIRANDA, Francisco Cavalcanti", titulo:"Tratado de Direito Privado",                volume:"I",  edicao:"3",  cidade:"Rio de Janeiro", editora:"Borsoi",                 ano:"1970", tipo:"Livro", tags:["clássico","direito privado","negócio jurídico"]},
+  {id:"tar1",  area:"Direito Civil",      autores:"TARTUCE, Flávio",            titulo:"Direito Civil",                                              volume:"I",  edicao:"20", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2024", tipo:"Livro", tags:["LINDB","pessoas","bens","negócio jurídico"]},
+  {id:"tar2",  area:"Direito Civil",      autores:"TARTUCE, Flávio",            titulo:"Direito Civil",                                              volume:"II", edicao:"20", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2024", tipo:"Livro", tags:["obrigações","contratos"]},
+  {id:"ps",    area:"Direito Civil",      autores:"GAGLIANO, Pablo Stolze; PAMPLONA FILHO, Rodolfo", titulo:"Manual de Direito Civil",            edicao:"8",  cidade:"São Paulo",      editora:"Saraiva",                ano:"2024", tipo:"Livro", tags:["civil","contratos","família","sucessões"]},
+  {id:"caio",  area:"Direito Civil",      autores:"PEREIRA, Caio Mário da Silva", titulo:"Instituições de Direito Civil",                         volume:"I",  edicao:"33", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2024", tipo:"Livro", tags:["pessoas","bens","fatos jurídicos"]},
+  {id:"ros",   area:"Direito Civil",      autores:"ROSENVALD, Nelson; FARIAS, Cristiano Chaves de", titulo:"Curso de Direito Civil",              volume:"I",  edicao:"20", cidade:"Salvador",       editora:"JusPodivm",              ano:"2022", tipo:"Livro", tags:["parte geral","pessoas","bens"]},
+  {id:"rod",   area:"Direito Civil",      autores:"RODRIGUES, Silvio",          titulo:"Direito Civil — Parte Geral",                                        edicao:"34", cidade:"São Paulo",      editora:"Saraiva",                ano:"2003", tipo:"Livro", tags:["clássico","parte geral"]},
+  // ── DIREITO CONSTITUCIONAL ──
+  {id:"jas",   area:"Direito Constitucional", autores:"SILVA, José Afonso da",  titulo:"Curso de Direito Constitucional Positivo",                           edicao:"44", cidade:"São Paulo",      editora:"Malheiros",              ano:"2024", tipo:"Livro", tags:["constituição","direitos fundamentais","organização"]},
+  {id:"gmc",   area:"Direito Constitucional", autores:"MENDES, Gilmar Ferreira; BRANCO, Paulo Gustavo Gonet", titulo:"Curso de Direito Constitucional", edicao:"19", cidade:"São Paulo", editora:"Saraiva", ano:"2024", tipo:"Livro", tags:["direitos fundamentais","controle de constitucionalidade"]},
+  {id:"bar",   area:"Direito Constitucional", autores:"BARROSO, Luís Roberto",  titulo:"Curso de Direito Constitucional Contemporâneo",                       edicao:"10", cidade:"São Paulo",      editora:"Saraiva",                ano:"2023", tipo:"Livro", tags:["neoconstitucionalismo","direitos fundamentais","interpretação"]},
+  {id:"alex",  area:"Direito Constitucional", autores:"ALEXY, Robert",          titulo:"Teoria dos Direitos Fundamentais",                                    edicao:"2",  cidade:"São Paulo",      editora:"Malheiros",              ano:"2017", tipo:"Livro", tags:["princípios","regras","ponderação","proporcionalidade"]},
+  {id:"boel",  area:"Direito Constitucional", autores:"BONAVIDES, Paulo",       titulo:"Curso de Direito Constitucional",                                     edicao:"37", cidade:"São Paulo",      editora:"Malheiros",              ano:"2023", tipo:"Livro", tags:["princípios","direitos fundamentais","estado"]},
+  {id:"moro",  area:"Direito Constitucional", autores:"MORAES, Alexandre de",   titulo:"Direito Constitucional",                                              edicao:"40", cidade:"São Paulo",      editora:"Atlas",                  ano:"2024", tipo:"Livro", tags:["direitos fundamentais","organização","controle"]},
+  // ── DIREITO PENAL ──
+  {id:"grg",   area:"Direito Penal",      autores:"GRECO, Rogério",             titulo:"Curso de Direito Penal: Parte Geral",                volume:"I",  edicao:"25", cidade:"Niterói",        editora:"Impetus",                ano:"2023", tipo:"Livro", tags:["crime","tipicidade","culpabilidade","pena"]},
+  {id:"mas",   area:"Direito Penal",      autores:"MASSON, Cleber",             titulo:"Direito Penal Esquematizado: Parte Geral",           volume:"I",  edicao:"17", cidade:"São Paulo",      editora:"Método",                 ano:"2023", tipo:"Livro", tags:["parte geral","crime","pena"]},
+  {id:"bito",  area:"Direito Penal",      autores:"BITENCOURT, Cezar Roberto",  titulo:"Tratado de Direito Penal: Parte Geral",              volume:"I",  edicao:"28", cidade:"São Paulo",      editora:"Saraiva",                ano:"2022", tipo:"Livro", tags:["tratado","parte geral","teoria do crime"]},
+  {id:"hung",  area:"Direito Penal",      autores:"HUNGRIA, Nelson",             titulo:"Comentários ao Código Penal",                        volume:"I",  edicao:"4",  cidade:"Rio de Janeiro", editora:"Forense",                ano:"1958", tipo:"Livro", tags:["clássico","código penal","comentários"]},
+  {id:"zaf",   area:"Direito Penal",      autores:"ZAFFARONI, Eugenio Raúl; PIERANGELI, José Henrique", titulo:"Manual de Direito Penal Brasileiro: Parte Geral", edicao:"12", cidade:"São Paulo", editora:"Thomson Reuters Brasil", ano:"2019", tipo:"Livro", tags:["teoria do delito","culpabilidade"]},
+  // ── DIREITO ADMINISTRATIVO ──
+  {id:"hel",   area:"Direito Administrativo", autores:"MEIRELLES, Hely Lopes", titulo:"Direito Administrativo Brasileiro",                                    edicao:"44", cidade:"São Paulo",      editora:"Malheiros",              ano:"2023", tipo:"Livro", tags:["ato administrativo","licitação","serviço público"]},
+  {id:"dip",   area:"Direito Administrativo", autores:"DI PIETRO, Maria Sylvia Zanella", titulo:"Direito Administrativo",                                      edicao:"37", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2024", tipo:"Livro", tags:["ato administrativo","processo administrativo","contratos"]},
+  {id:"car",   area:"Direito Administrativo", autores:"CARVALHO FILHO, José dos Santos", titulo:"Manual de Direito Administrativo",                            edicao:"38", cidade:"São Paulo",      editora:"Atlas",                  ano:"2024", tipo:"Livro", tags:["ato administrativo","licitação","servidores"]},
+  {id:"ban",   area:"Direito Administrativo", autores:"BANDEIRA DE MELLO, Celso Antônio", titulo:"Curso de Direito Administrativo",                            edicao:"35", cidade:"São Paulo",      editora:"Malheiros",              ano:"2022", tipo:"Livro", tags:["princípios","ato administrativo","responsabilidade"]},
+  {id:"jscf",  area:"Direito Administrativo", autores:"JUSTEN FILHO, Marçal",   titulo:"Curso de Direito Administrativo",                                     edicao:"14", cidade:"São Paulo",      editora:"Thomson Reuters Brasil", ano:"2020", tipo:"Livro", tags:["licitação","contratos","serviço público"]},
+  // ── DIREITO TRIBUTÁRIO ──
+  {id:"pbc",   area:"Direito Tributário", autores:"CARVALHO, Paulo de Barros",  titulo:"Curso de Direito Tributário",                                          edicao:"32", cidade:"São Paulo",      editora:"Saraiva",                ano:"2021", tipo:"Livro", tags:["regra-matriz","lançamento","obrigação tributária"]},
+  {id:"sac",   area:"Direito Tributário", autores:"COÊLHO, Sacha Calmon Navarro", titulo:"Curso de Direito Tributário Brasileiro",                            edicao:"16", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2022", tipo:"Livro", tags:["obrigação tributária","lançamento","imunidade"]},
+  {id:"hugo",  area:"Direito Tributário", autores:"MACHADO, Hugo de Brito",     titulo:"Curso de Direito Tributário",                                          edicao:"44", cidade:"São Paulo",      editora:"Malheiros",              ano:"2023", tipo:"Livro", tags:["CTN","crédito tributário","lançamento"]},
+  {id:"ama",   area:"Direito Tributário", autores:"AMARO, Luciano",             titulo:"Direito Tributário Brasileiro",                                        edicao:"24", cidade:"São Paulo",      editora:"Saraiva",                ano:"2020", tipo:"Livro", tags:["sistema tributário","princípios","obrigação"]},
+  {id:"bale",  area:"Direito Tributário", autores:"BARRETO, Aires Fernandino",  titulo:"ISS na Constituição e na Lei",                                         edicao:"4",  cidade:"São Paulo",      editora:"Dialética",              ano:"2020", tipo:"Livro", tags:["ISS","tributário municipal","serviços"]},
+  // ── DIREITO DO TRABALHO ──
+  {id:"god",   area:"Direito do Trabalho", autores:"DELGADO, Maurício Godinho", titulo:"Curso de Direito do Trabalho",                                         edicao:"23", cidade:"São Paulo",      editora:"LTr",                    ano:"2024", tipo:"Livro", tags:["contrato de trabalho","princípios","CLT"]},
+  {id:"spm",   area:"Direito do Trabalho", autores:"MARTINS, Sérgio Pinto",     titulo:"Direito do Trabalho",                                                  edicao:"40", cidade:"São Paulo",      editora:"Saraiva",                ano:"2024", tipo:"Livro", tags:["CLT","contrato","jornada","salário"]},
+  {id:"alm",   area:"Direito do Trabalho", autores:"MONTEIRO DE BARROS, Alice", titulo:"Curso de Direito do Trabalho",                                         edicao:"9",  cidade:"São Paulo",      editora:"LTr",                    ano:"2013", tipo:"Livro", tags:["clássico","CLT","trabalho"]},
+  {id:"pla",   area:"Direito do Trabalho", autores:"CASSAR, Vólia Bomfim",      titulo:"Direito do Trabalho",                                                  edicao:"18", cidade:"São Paulo",      editora:"Método",                 ano:"2022", tipo:"Livro", tags:["CLT","contrato","CLT 2022"]},
+  // ── DIREITO EMPRESARIAL ──
+  {id:"fuc1",  area:"Direito Empresarial", autores:"COELHO, Fábio Ulhoa",       titulo:"Curso de Direito Comercial",                         volume:"I",  edicao:"25", cidade:"São Paulo",      editora:"Thomson Reuters Brasil", ano:"2023", tipo:"Livro", tags:["empresa","empresário","sociedades","registro"]},
+  {id:"fuc2",  area:"Direito Empresarial", autores:"COELHO, Fábio Ulhoa",       titulo:"Curso de Direito Comercial",                         volume:"II", edicao:"25", cidade:"São Paulo",      editora:"Thomson Reuters Brasil", ano:"2023", tipo:"Livro", tags:["títulos de crédito","contratos empresariais"]},
+  {id:"req",   area:"Direito Empresarial", autores:"REQUIÃO, Rubens",           titulo:"Curso de Direito Comercial",                         volume:"I",  edicao:"34", cidade:"São Paulo",      editora:"Saraiva",                ano:"2015", tipo:"Livro", tags:["clássico","sociedades","contratos mercantis"]},
+  {id:"mam",   area:"Direito Empresarial", autores:"MAMEDE, Gladston",          titulo:"Direito Empresarial Brasileiro",                     volume:"I",  edicao:"15", cidade:"São Paulo",      editora:"Atlas",                  ano:"2022", tipo:"Livro", tags:["empresa","empresário","estabelecimento"]},
+  {id:"tok",   area:"Direito Empresarial", autores:"TOMAZETTE, Marlon",         titulo:"Curso de Direito Empresarial",                       volume:"I",  edicao:"13", cidade:"São Paulo",      editora:"Saraiva",                ano:"2022", tipo:"Livro", tags:["empresa","sociedades","falência"]},
+  // ── DIREITO DO CONSUMIDOR ──
+  {id:"ben",   area:"Direito do Consumidor", autores:"BENJAMIN, Antônio Herman V.; MARQUES, Claudia Lima; BESSA, Leonardo Roscoe", titulo:"Manual de Direito do Consumidor", edicao:"11", cidade:"São Paulo", editora:"Thomson Reuters Brasil", ano:"2022", tipo:"Livro", tags:["CDC","responsabilidade","práticas abusivas"]},
+  {id:"mar",   area:"Direito do Consumidor", autores:"MARQUES, Claudia Lima",   titulo:"Contratos no Código de Defesa do Consumidor",                          edicao:"9",  cidade:"São Paulo",      editora:"Thomson Reuters Brasil", ano:"2019", tipo:"Livro", tags:["CDC","contratos","cláusulas abusivas"]},
+  {id:"ner",   area:"Direito do Consumidor", autores:"NERY JR., Nelson",        titulo:"Código Brasileiro de Defesa do Consumidor — Comentado",                edicao:"12", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2019", tipo:"Livro", tags:["CDC","comentários"]},
+  // ── TEORIA DO DIREITO ──
+  {id:"kel",   area:"Teoria do Direito",  autores:"KELSEN, Hans",              titulo:"Teoria Pura do Direito",                                               edicao:"8",  cidade:"São Paulo",      editora:"Martins Fontes",         ano:"2009", tipo:"Livro", tags:["norma","validade","positivismo","clássico"]},
+  {id:"dw",    area:"Teoria do Direito",  autores:"DWORKIN, Ronald",           titulo:"Levando os Direitos a Sério",                                           edicao:"3",  cidade:"São Paulo",      editora:"Martins Fontes",         ano:"2010", tipo:"Livro", tags:["direitos","princípios","integridade","clássico"]},
+  {id:"raz",   area:"Teoria do Direito",  autores:"RAZ, Joseph",               titulo:"A Autoridade do Direito",                                               edicao:"1",  cidade:"São Paulo",      editora:"WMF Martins Fontes",     ano:"2012", tipo:"Livro", tags:["autoridade","obrigação","direito"]},
+  {id:"hrt",   area:"Teoria do Direito",  autores:"HART, Herbert Lionel Adolphus", titulo:"O Conceito de Direito",                                              edicao:"3",  cidade:"São Paulo",      editora:"WMF Martins Fontes",     ano:"2009", tipo:"Livro", tags:["norma","regras","positivismo","clássico"]},
+  {id:"mce",   area:"Teoria do Direito",  autores:"MACCORMICK, Neil",          titulo:"Argumentação Jurídica e Teoria do Direito",                             edicao:"1",  cidade:"São Paulo",      editora:"Martins Fontes",         ano:"2006", tipo:"Livro", tags:["argumentação","raciocínio","coerência"]},
+  // ── DIREITO DIGITAL ──
+  {id:"tex",   area:"Direito Digital",    autores:"TEIXEIRA, Tarcísio",        titulo:"Direito Digital e Processo Eletrônico",                                 edicao:"5",  cidade:"São Paulo",      editora:"Saraiva",                ano:"2020", tipo:"Livro", tags:["LGPD","processo eletrônico","digital"]},
+  {id:"poli",  area:"Direito Digital",    autores:"POLI, Leonardo Macedo; NAVES, Bruno Torquato de Oliveira", titulo:"Privacidade e Proteção de Dados Pessoais", edicao:"1", cidade:"Belo Horizonte", editora:"D'Plácido", ano:"2022", tipo:"Livro", tags:["LGPD","privacidade","dados pessoais"]},
+  {id:"bri",   area:"Direito Digital",    autores:"BRITO CRUZ, Francisco",     titulo:"Direito, Democracia e Cultura Digital",                                 edicao:"1",  cidade:"São Paulo",      editora:"Contracorrente",         ano:"2020", tipo:"Livro", tags:["plataformas","democracia","regulação digital"]},
+  // ── DIREITO AMBIENTAL ──
+  {id:"antune",area:"Direito Ambiental",  autores:"ANTUNES, Paulo de Bessa",   titulo:"Direito Ambiental",                                                     edicao:"22", cidade:"São Paulo",      editora:"Atlas",                  ano:"2022", tipo:"Livro", tags:["meio ambiente","licenciamento","dano ambiental"]},
+  {id:"silva_a",area:"Direito Ambiental", autores:"SILVA, José Afonso da",     titulo:"Direito Ambiental Constitucional",                                      edicao:"10", cidade:"São Paulo",      editora:"Malheiros",              ano:"2013", tipo:"Livro", tags:["constituição","meio ambiente","princípios"]},
+  // ── DIREITO PREVIDENCIÁRIO ──
+  {id:"ibs",   area:"Direito Previdenciário", autores:"IBRAHIM, Fábio Zambitte", titulo:"Curso de Direito Previdenciário",                                      edicao:"27", cidade:"Niterói",        editora:"Impetus",                ano:"2022", tipo:"Livro", tags:["previdência","custeio","benefícios","RGPS"]},
+  {id:"ols",   area:"Direito Previdenciário", autores:"OLIVEIRA, Lamartine Braga de", titulo:"Manual de Direito Previdenciário",                                edicao:"16", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2023", tipo:"Livro", tags:["previdência","benefícios","contribuições"]},
+  // ── DIREITO BANCÁRIO ──
+  {id:"abr",   area:"Direito Bancário",      autores:"ABRÃO, Nelson",              titulo:"Curso de Direito Bancário",                                             edicao:"17", cidade:"São Paulo",      editora:"Atlas",                  ano:"2022", tipo:"Livro", tags:["contrato bancário","crédito","operações ativas","operações passivas"]},
+  {id:"sal",   area:"Direito Bancário",      autores:"SALOMÃO NETO, Eduardo",      titulo:"Direito Bancário",                                                      edicao:"3",  cidade:"São Paulo",      editora:"Atlas",                  ano:"2014", tipo:"Livro", tags:["sistema financeiro","contratos bancários","depósito","mútuo"]},
+  {id:"fubc",  area:"Direito Bancário",      autores:"COELHO, Fábio Ulhoa",        titulo:"Manual de Direito Bancário e Empresarial",                              edicao:"6",  cidade:"São Paulo",      editora:"Thomson Reuters Brasil", ano:"2021", tipo:"Livro", tags:["contratos bancários","crédito","financiamento"]},
+  {id:"covello",area:"Direito Bancário",     autores:"COVELLO, Sérgio Carlos",     titulo:"Contratos Bancários",                                                   edicao:"4",  cidade:"São Paulo",      editora:"Universitária de Direito",ano:"2001", tipo:"Livro", tags:["clássico","contratos bancários","mútuo","abertura de crédito"]},
+  {id:"berger",area:"Direito Bancário",      autores:"BERGER, Renato",             titulo:"Crédito e Financiamento no Sistema Financeiro Nacional",                 edicao:"1",  cidade:"São Paulo",      editora:"Thomson Reuters Brasil", ano:"2019", tipo:"Livro", tags:["crédito","financiamento","garantias","FIDC"]},
+  {id:"terra", area:"Direito Bancário",      autores:"TERRA, Marcelo",             titulo:"Direito Bancário e do Mercado de Capitais",                             edicao:"2",  cidade:"São Paulo",      editora:"Saraiva",                ano:"2020", tipo:"Livro", tags:["sistema financeiro","contratos","valores mobiliários"]},
+  {id:"turczyn",area:"Direito Bancário",     autores:"TURCZYN, Sidnei",            titulo:"O Sistema Financeiro Nacional e a Regulação Bancária",                  edicao:"1",  cidade:"São Paulo",      editora:"Thomson Reuters Brasil", ano:"2005", tipo:"Livro", tags:["sistema financeiro","regulação","BACEN","CMN"]},
+  // ── MERCADO DE CAPITAIS ──
+  {id:"eiz1",  area:"Mercado de Capitais",   autores:"EIZIRIK, Nelson; GAAL, Ariádna B.; PARENTE, Flávia; HENRIQUES, Marcus de Freitas", titulo:"Mercado de Capitais: Regime Jurídico", edicao:"4", cidade:"São Paulo", editora:"Quartier Latin", ano:"2019", tipo:"Livro", tags:["CVM","valores mobiliários","ofertas públicas","insider trading"]},
+  {id:"eiz2",  area:"Mercado de Capitais",   autores:"EIZIRIK, Nelson",            titulo:"A Lei das S.A. Comentada",                                     volume:"I",  edicao:"3",  cidade:"São Paulo",      editora:"Quartier Latin",         ano:"2019", tipo:"Livro", tags:["sociedades anônimas","acionista","conselho de administração"]},
+  {id:"yaz",   area:"Mercado de Capitais",   autores:"YAZBEK, Otavio",             titulo:"Regulação do Mercado Financeiro e de Capitais",                          edicao:"2",  cidade:"Rio de Janeiro", editora:"Elsevier",               ano:"2009", tipo:"Livro", tags:["regulação","CVM","BACEN","sistema financeiro"]},
+  {id:"comp",  area:"Mercado de Capitais",   autores:"COMPARATO, Fábio Konder; SALOMÃO FILHO, Calixto", titulo:"O Poder de Controle na Sociedade Anônima",          edicao:"6",  cidade:"Rio de Janeiro", editora:"Forense",                ano:"2014", tipo:"Livro", tags:["controle societário","acionista controlador","abuso de poder"]},
+  {id:"cvm1",  area:"Mercado de Capitais",   autores:"CHEDIAK, Julian; MUNHOZ, Eduardo Secchi; PIVA, Luciano Zordan (Coord.)", titulo:"Mercado de Capitais: Aspectos Jurídicos", edicao:"1", cidade:"São Paulo", editora:"Thomson Reuters Brasil", ano:"2020", tipo:"Livro", tags:["CVM","oferta pública","insider trading","regulação"]},
+  {id:"sztj",  area:"Mercado de Capitais",   autores:"SZTAJN, Rachel",             titulo:"Teoria Jurídica da Empresa",                                            edicao:"2",  cidade:"São Paulo",      editora:"Atlas",                  ano:"2010", tipo:"Livro", tags:["empresa","teoria econômica","regulação","mercado"]},
+  {id:"bor",   area:"Mercado de Capitais",   autores:"BORBA, José Edwaldo Tavares",titulo:"Direito Societário",                                                    edicao:"16", cidade:"São Paulo",      editora:"Atlas",                  ano:"2021", tipo:"Livro", tags:["sociedades","ações","debêntures","assembleia"]},
+  {id:"carv",  area:"Mercado de Capitais",   autores:"CARVALHOSA, Modesto",        titulo:"Comentários à Lei de Sociedades Anônimas",                    volume:"I",  edicao:"7",  cidade:"São Paulo",      editora:"Saraiva",                ano:"2021", tipo:"Livro", tags:["S.A.","ações","controle","comentários"]},
+  {id:"pin_mc",area:"Mercado de Capitais",   autores:"PINHEIRO, Armando Castelar; SADDI, Jairo", titulo:"Direito, Economia e Mercados",                            edicao:"1",  cidade:"Rio de Janeiro", editora:"Elsevier",               ano:"2005", tipo:"Livro", tags:["law and economics","regulação","mercado"]},
+  {id:"guil",  area:"Mercado de Capitais",   autores:"GUILHERME, Luiz Fernando do Vale de Almeida", titulo:"Mercado Financeiro e de Capitais: Disciplina Jurídica", edicao:"1",  cidade:"São Paulo",      editora:"Quartier Latin",         ano:"2016", tipo:"Livro", tags:["valores mobiliários","fundos","derivativos","CVM"]},
+];
+const AREAS_FILTRO_BIB=["Todas as áreas","Processo Civil","Direito Civil","Direito Constitucional","Direito Penal","Direito Administrativo","Direito Tributário","Direito do Trabalho","Direito Empresarial","Direito do Consumidor","Teoria do Direito","Direito Digital","Direito Ambiental","Direito Previdenciário","Direito Bancário","Mercado de Capitais"];
+const PERIODOS_BIB=["Qualquer período","2020–2025","2015–2019","2010–2014","Clássicos (até 2009)"];
+const TIPOS_REF_BIB=["Qualquer tipo","Livro","Artigo","Tese","Dissertação"];
+function abntCompleta(r){const vol=r.volume?`, v. ${r.volume}`:"";const ed=r.edicao?`. ${r.edicao}. ed.`:"";return`${r.autores}. **${r.titulo}**${vol}${ed} ${r.cidade}: ${r.editora}, ${r.ano}.`;}
+function notaFormatada(r){const sobrenome=r.autores.split(";")[0].trim().split(",")[0].trim();const vol=r.volume?`, v. ${r.volume}`:"";const ed=r.edicao?`, ${r.edicao}. ed.`:"";return`N ${sobrenome}, *${r.titulo}*${vol}${ed}, ${r.cidade}, ${r.editora}, ${r.ano}.`;}
+function RefCardBib({r}){
+  const[cp,setCp]=useState(null);const[saved,setSaved]=useState(null);
+  const C={border:"#ddd9d0",bg:"#faf8f4",nav:"#12192e",gold:"#c49a2a",textSec:"#555",textTer:"#999"};
+  const copiar=async(texto,key)=>{navigator.clipboard?.writeText(texto);await bibCacheAdd(texto);setCp(key);setSaved(key);setTimeout(()=>{setCp(null);setSaved(null);},2500);};
+  return(
+    <div style={{background:"white",border:`1px solid ${C.border}`,borderRadius:6,padding:"14px 16px",marginBottom:10}}>
+      <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{background:`${C.gold}20`,color:C.gold,border:`1px solid ${C.gold}40`,fontSize:10,padding:"2px 8px",borderRadius:10,fontFamily:"monospace"}}>{r.area}</span>
+        <span style={{background:"#ede8df",color:C.textSec,fontSize:10,padding:"2px 8px",borderRadius:10,fontFamily:"monospace"}}>{r.tipo} · {r.ano}</span>
+        {saved&&<span style={{background:"#f0fdf4",color:"#166534",border:"1px solid #86efac",fontSize:10,padding:"2px 8px",borderRadius:10,fontFamily:"monospace",marginLeft:"auto"}}>✅ salvo no Hub</span>}
+      </div>
+      <div style={{fontSize:14,fontWeight:700,color:C.nav,marginBottom:3,lineHeight:1.4}}>{r.titulo}{r.volume&&<span style={{fontWeight:400,color:C.textSec}}>, v. {r.volume}</span>}</div>
+      <div style={{fontSize:12,color:C.textSec,marginBottom:10,lineHeight:1.5}}>{r.autores}</div>
+      <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:4,padding:"8px 12px",fontSize:11,fontFamily:"monospace",lineHeight:1.7,marginBottom:4}}>
+        <span style={{fontSize:9,color:C.textTer,display:"block",marginBottom:3,textTransform:"uppercase",letterSpacing:".06em"}}>ABNT</span>
+        {r.autores}. <strong>{r.titulo}</strong>{r.volume?`, v. ${r.volume}`:""}{r.edicao?`. ${r.edicao}. ed.`:""} {r.cidade}: {r.editora}, {r.ano}.
+      </div>
+      <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:4,padding:"8px 12px",fontSize:11,fontFamily:"monospace",lineHeight:1.7,marginBottom:10}}>
+        <span style={{fontSize:9,color:C.textTer,display:"block",marginBottom:3,textTransform:"uppercase",letterSpacing:".06em"}}>Nota de rodapé</span>
+        <sup>N</sup> {r.autores.split(";")[0].trim().split(",")[0].trim()}, <em>{r.titulo}</em>{r.volume?`, v. ${r.volume}`:""}{r.edicao?`, ${r.edicao}. ed.`:""}, {r.cidade}, {r.editora}, {r.ano}.
+      </div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        <button onClick={()=>copiar(abntCompleta(r),"abnt")} style={{padding:"5px 13px",background:cp==="abnt"?"#f0fdf4":"transparent",border:`1px solid ${cp==="abnt"?"#86efac":C.border}`,borderRadius:4,cursor:"pointer",fontSize:11,fontFamily:"monospace",color:cp==="abnt"?"#166534":C.textSec,transition:"all .15s"}}>{cp==="abnt"?"✅ copiado + salvo!":"📋 Copiar ABNT"}</button>
+        <button onClick={()=>copiar(notaFormatada(r),"fn")} style={{padding:"5px 13px",background:cp==="fn"?"#f0fdf4":"transparent",border:`1px solid ${cp==="fn"?"#86efac":C.border}`,borderRadius:4,cursor:"pointer",fontSize:11,fontFamily:"monospace",color:cp==="fn"?"#166534":C.textSec,transition:"all .15s"}}>{cp==="fn"?"✅ copiado + salvo!":"ⁿ Copiar nota"}</button>
+        {r.tags&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginLeft:"auto"}}>{r.tags.slice(0,4).map(t=><span key={t} style={{fontSize:9,padding:"2px 7px",background:"#ede8df",borderRadius:10,color:C.textTer,fontFamily:"monospace"}}>{t}</span>)}</div>}
+      </div>
+    </div>
+  );
+}
 function BibTool(){
-  const[busca,setBusca]=useState('');const[iaResult,setIaResult]=useState('');const[loading,setLoading]=useState(false);const[err,setErr]=useState('');
-  const buscarIA=async()=>{
-    if(!busca.trim())return;setLoading(true);setIaResult('');setErr('');
+  const[busca,setBusca]=useState('');const[area,setArea]=useState('Todas as áreas');const[periodo,setPeriodo]=useState('Qualquer período');const[tipoRef,setTipoRef]=useState('Qualquer tipo');const[modo,setModo]=useState('classicos');const[loading,setLoading]=useState(false);const[iaResult,setIaResult]=useState('');const[iaErro,setIaErro]=useState('');const[cpTodos,setCpTodos]=useState(false);
+  const resultados=CLASSICOS.filter(r=>{const q=busca.toLowerCase();const matchBusca=!busca||[r.titulo,r.autores,...(r.tags||[])].some(s=>s.toLowerCase().includes(q));const matchArea=area==="Todas as áreas"||r.area===area;const matchTipo=tipoRef==="Qualquer tipo"||r.tipo===tipoRef;const matchPer=periodo==="Qualquer período"||(()=>{const a=parseInt(r.ano);if(periodo==="2020–2025")return a>=2020;if(periodo==="2015–2019")return a>=2015&&a<=2019;if(periodo==="2010–2014")return a>=2010&&a<=2014;if(periodo==="Clássicos (até 2009)")return a<=2009;return true;})();return matchBusca&&matchArea&&matchTipo&&matchPer;});
+  const buscarIA=useCallback(async()=>{
+    if(!busca.trim())return;setLoading(true);setIaResult('');setIaErro('');
     try{
-      const data=await callClaude({model:'claude-sonnet-4-20250514',max_tokens:4000,messages:[{role:'user',content:`Pesquise referências doutrinárias jurídicas REAIS sobre: "${busca}"\nListe pelo menos 8 obras com: autor, título, edição, cidade, editora, ano.\nFormato para cada:\n**SOBRENOME, Prenome. *Título*. N. ed. Cidade: Editora, Ano.**\nNota de rodapé: SOBRENOME, *Título abrev.*, ed., cidade, editora, ano.\n\nAo final: COMO USAR NO TEXTO com 3 exemplos de citação integrada.`}]});
+      const prompt=`Você é especialista em doutrina jurídica. Pesquise e liste referências doutrinárias REAIS sobre:\n\nTema: "${busca}"${area!=="Todas as áreas"?`\nÁrea: ${area}`:""}${periodo!=="Qualquer período"?`\nPeríodo: ${periodo}`:""}.\n\nREGRAS: Somente obras que você tem certeza que existem. Se não tiver certeza da edição/página, omita.\nInclua obras nacionais E estrangeiras. Priorize 2018–2025 (exceto clássicos indispensáveis).\n\nPara cada obra:\n**[SOBRENOME, Prenome. *Título*. N. ed. Cidade: Editora, Ano.]**\nRelevância: [1–2 frases]\nNota de rodapé: [SOBRENOME, *Título abrev.*, ed., cidade, editora, ano, p. XX.]\n\nAo final: "**COMO USAR NO TEXTO:**" com 3 exemplos de citação integrada.\nListe pelo menos 8 obras:`;
+      const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':getKey(),'anthropic-version':'2023-06-01','anthropic-beta':'web-search-2025-03-05','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}],tools:[{type:'web_search_20250305',name:'web_search'}]})});
+      const data=await resp.json();
+      if(!resp.ok)throw new Error(data?.error?.message||`Erro ${resp.status}`);
       const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+      if(!txt)throw new Error('Resposta vazia.');
       setIaResult(txt);
-      const cached=ls('jura-bib-cache',[]);cached.push({id:Date.now(),texto:'[Busca: '+busca+'] '+txt.slice(0,300)});lsSet('jura-bib-cache',cached);
-    }catch(e){setErr('❌ '+e.message);}
-    setLoading(false);
-  };
-  const C={bg:'#f5f4f1',white:'white',nav:'#12192e',gold:'#c49a2a',border:'#ddd9d0',textSec:'#555',textTer:'#999'};
+      await bibCacheAdd('[IA] '+txt.slice(0,300));
+    }catch(e){setIaErro('❌ Erro: '+(e.message||'verifique a conexão.'));}
+    finally{setLoading(false);}
+  },[busca,area,periodo,tipoRef]);
+  const copiarTodos=async()=>{const txt=resultados.map(r=>abntCompleta(r)).join('\n');navigator.clipboard?.writeText(txt);await bibCacheAdd(txt);setCpTodos(true);setTimeout(()=>setCpTodos(false),3000);};
+  const C={bg:'#f5f4f1',white:'white',nav:'#12192e',gold:'#c49a2a',border:'#ddd9d0',textPri:'#111',textSec:'#555',textTer:'#999'};
   return(
     <div style={{height:'100%',display:'flex',flexDirection:'column',background:C.bg,overflow:'hidden'}}>
-      <div style={{background:C.nav,padding:'0 20px',display:'flex',alignItems:'center',gap:12,height:48,flexShrink:0}}><span style={{color:C.gold,fontFamily:'monospace',fontWeight:700,fontSize:13,letterSpacing:'.1em'}}>JURBIBLIOTECA</span><span style={{background:`${C.gold}25`,border:`1px solid ${C.gold}55`,color:C.gold,fontSize:9,padding:'2px 8px',borderRadius:2,fontFamily:'monospace'}}>v2 · Doutrina · ABNT</span></div>
-      <div style={{flex:1,overflowY:'auto',padding:'20px'}}>
-        <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:'16px 20px',marginBottom:14}}>
-          <div style={{display:'flex',gap:10}}>
-            <input value={busca} onChange={e=>setBusca(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')buscarIA();}} placeholder="Buscar doutrina... Ex: jurisdição, contratos bancários, insider trading" style={{flex:1,padding:'10px 14px',border:`1px solid ${C.border}`,borderRadius:6,fontFamily:'Georgia,serif',fontSize:13,background:C.bg,outline:'none'}} onFocus={e=>e.target.style.borderColor=C.gold} onBlur={e=>e.target.style.borderColor=C.border}/>
-            <button onClick={buscarIA} disabled={loading||!busca.trim()} style={{padding:'10px 20px',background:loading?'#aaa':C.nav,color:'white',border:'none',borderRadius:6,cursor:'pointer',fontSize:13,fontFamily:'monospace',fontWeight:700,whiteSpace:'nowrap'}}>{loading?'⏳...':'🔍 Buscar IA'}</button>
+      <div style={{background:C.nav,padding:'0 20px',display:'flex',alignItems:'center',gap:12,height:48,flexShrink:0}}>
+        <span style={{color:C.gold,fontFamily:'monospace',fontWeight:700,fontSize:13,letterSpacing:'.1em'}}>JURBIBLIOTECA</span>
+        <span style={{background:`${C.gold}25`,border:`1px solid ${C.gold}55`,color:C.gold,fontSize:9,padding:'2px 8px',borderRadius:2,fontFamily:'monospace'}}>v2 · {CLASSICOS.length} obras · auto-save Hub</span>
+        <span style={{fontSize:11,color:'rgba(255,255,255,.35)',fontFamily:'monospace',marginLeft:8}}>Copiar → grava automaticamente no Hub</span>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
+        <div style={{padding:'9px 14px',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:6,marginBottom:12,fontSize:11,color:'#1e40af',display:'flex',alignItems:'center',gap:8}}>
+          <span>🔗</span><span><strong>v2 — auto-save ativo:</strong> toda referência copiada é gravada em <code style={{fontSize:10,background:'rgba(0,0,0,.07)',padding:'1px 4px',borderRadius:3}}>jura-bib-cache</code> e aparece no JurObra v2 automaticamente.</span>
+        </div>
+        <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px',marginBottom:12}}>
+          <div style={{display:'flex',gap:10,marginBottom:10}}>
+            <input value={busca} onChange={e=>setBusca(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&modo==='ia')buscarIA();}} placeholder="Buscar por tema, autor ou título... Ex: jurisdição, Dinamarco, contratos" style={{flex:1,padding:'10px 14px',border:`1px solid ${C.border}`,borderRadius:6,fontFamily:'Georgia,serif',fontSize:13,color:C.textPri,background:C.bg,outline:'none',transition:'border-color .15s'}} onFocus={e=>e.target.style.borderColor=C.gold} onBlur={e=>e.target.style.borderColor=C.border}/>
+            {modo==='ia'&&<button onClick={buscarIA} disabled={loading||!busca.trim()} style={{padding:'10px 20px',background:loading?'#aaa':C.nav,color:'white',border:'none',borderRadius:6,cursor:loading?'not-allowed':'pointer',fontSize:13,fontFamily:'monospace',fontWeight:700,whiteSpace:'nowrap'}}>{loading?'⏳ buscando...':'🔍 Buscar IA'}</button>}
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(160px,1fr))',gap:8}}>
+            {[['Área',area,setArea,AREAS_FILTRO_BIB],['Período',periodo,setPeriodo,PERIODOS_BIB],['Tipo',tipoRef,setTipoRef,TIPOS_REF_BIB]].map(([label,val,setter,opts])=>(
+              <div key={label}>
+                <div style={{fontSize:9,fontFamily:'monospace',color:C.textTer,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:3}}>{label}</div>
+                <select value={val} onChange={e=>setter(e.target.value)} style={{width:'100%',padding:'6px 8px',border:`1px solid ${C.border}`,borderRadius:4,fontFamily:'Georgia,serif',fontSize:12,color:C.textPri,background:C.bg,outline:'none'}}>
+                  {opts.map(o=><option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+            ))}
           </div>
         </div>
-        {err&&<div style={{padding:'10px 14px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:4,fontSize:12,color:'#991b1b',fontFamily:'monospace',marginBottom:12}}>{err}</div>}
-        {!iaResult&&!loading&&<div style={{textAlign:'center',padding:'48px 0',color:C.textTer}}><div style={{fontSize:36,marginBottom:14}}>📖</div><div style={{fontSize:13,color:C.textSec}}>Digite o tema e pressione Enter ou clique em Buscar IA</div></div>}
-        {loading&&<div style={{textAlign:'center',padding:'48px 0'}}><div style={{fontSize:13,color:C.textSec,fontFamily:'monospace',marginBottom:16}}>⏳ Pesquisando doutrina jurídica...</div></div>}
-        {iaResult&&(
-          <div style={{background:C.white,border:`1px solid ${C.border}`,borderLeft:'3px solid #16a34a',borderRadius:6,padding:16}}>
-            <div style={{display:'flex',justifyContent:'space-between',marginBottom:10}}>
-              <span style={{fontSize:10,fontFamily:'monospace',color:'#166534',fontWeight:700}}>🔍 Resultado IA</span>
-              <button onClick={()=>{navigator.clipboard?.writeText(iaResult);}} style={{padding:'4px 12px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:11,fontFamily:'monospace',color:C.textSec}}>📋 Copiar</button>
+        <div style={{display:'flex',gap:0,marginBottom:12,borderBottom:`1px solid ${C.border}`}}>
+          {[['classicos',`📚 Base de Clássicos (${CLASSICOS.length})`],['ia','🔍 Busca IA + Web']].map(([id,label])=>(
+            <button key={id} onClick={()=>setModo(id)} style={{padding:'8px 18px',fontSize:12,fontFamily:'monospace',letterSpacing:'.05em',border:'none',background:modo===id?C.white:'transparent',cursor:'pointer',color:modo===id?C.nav:C.textTer,fontWeight:modo===id?700:400,borderBottom:modo===id?`2px solid ${C.gold}`:'2px solid transparent',marginBottom:-1,transition:'all .15s'}}>{label}</button>
+          ))}
+        </div>
+        {modo==='classicos'&&(
+          <>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+              <span style={{fontSize:11,fontFamily:'monospace',color:C.textTer}}>{resultados.length} resultado{resultados.length!==1?'s':''}{busca?` para "${busca}"`:" — copiar salva automaticamente no Hub"}</span>
+              {resultados.length>0&&<button onClick={copiarTodos} style={{padding:'5px 14px',background:cpTodos?'#f0fdf4':'transparent',border:`1px solid ${cpTodos?'#86efac':C.border}`,borderRadius:4,cursor:'pointer',fontSize:11,fontFamily:'monospace',color:cpTodos?'#166534':C.textSec,transition:'all .15s'}}>{cpTodos?'✅ copiado + salvo!':'📋 Copiar todos (ABNT)'}</button>}
             </div>
-            <RichText content={iaResult}/>
-          </div>
+            {resultados.length===0?(
+              <div style={{textAlign:'center',padding:'40px 0',color:C.textTer}}>
+                <div style={{fontSize:32,marginBottom:10}}>📚</div>
+                <div style={{fontSize:13,color:C.textSec}}>Nenhuma obra encontrada — use Busca IA para doutrina específica</div>
+                <button onClick={()=>setModo('ia')} style={{marginTop:12,padding:'8px 20px',background:C.nav,color:'white',border:'none',borderRadius:6,cursor:'pointer',fontSize:12,fontFamily:'monospace'}}>🔍 Ir para Busca IA</button>
+              </div>
+            ):resultados.map((r,i)=><RefCardBib key={r.id||i} r={r}/>)}
+          </>
+        )}
+        {modo==='ia'&&(
+          <>
+            {iaErro&&<div style={{padding:'10px 14px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:4,fontSize:12,color:'#991b1b',fontFamily:'monospace',marginBottom:12}}>{iaErro}</div>}
+            {!iaResult&&!loading&&!iaErro&&(
+              <div style={{textAlign:'center',padding:'48px 0',color:C.textTer}}>
+                <div style={{fontSize:36,marginBottom:14}}>📚</div>
+                <div style={{fontSize:13,color:C.textSec,marginBottom:6}}>Busca IA com pesquisa web em tempo real</div>
+                <div style={{fontSize:12,lineHeight:1.7,color:C.textTer,maxWidth:480,margin:'0 auto'}}>Digite o tema e clique em <strong style={{color:C.nav}}>Buscar IA</strong>. Os resultados são salvos no Hub ao copiar.</div>
+              </div>
+            )}
+            {loading&&(
+              <div style={{textAlign:'center',padding:'48px 0'}}>
+                <div style={{fontSize:13,color:C.textSec,fontFamily:'monospace',marginBottom:16}}>⏳ Pesquisando doutrina + web...</div>
+                {[0,1,2].map(j=><div key={j} style={{display:'inline-block',width:8,height:8,borderRadius:'50%',background:C.gold,margin:'0 4px',opacity:.6,animation:`bounce 1.2s ease-in-out ${j*.2}s infinite`}}/>)}
+              </div>
+            )}
+            {iaResult&&(
+              <div style={{background:C.white,border:`1px solid ${C.border}`,borderLeft:'3px solid #16a34a',borderRadius:6,padding:16,marginBottom:10}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,gap:8,flexWrap:'wrap'}}>
+                  <span style={{fontSize:10,fontFamily:'monospace',color:'#166534',fontWeight:700,textTransform:'uppercase',letterSpacing:'.07em'}}>🔍 Pesquisa IA + Web</span>
+                  <button onClick={async()=>{navigator.clipboard?.writeText(iaResult);await bibCacheAdd(iaResult);}} style={{padding:'4px 12px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:11,fontFamily:'monospace',color:C.textSec}}>📋 Copiar tudo</button>
+                </div>
+                <RichText content={iaResult}/>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
   );
 }
-
 // ── JUR TOOL ─────────────────────────────────────────────────────
 function JurTool(){
   const[busca,setBusca]=useState('');const[tribunal,setTribunal]=useState('Todos');const[iaResult,setIaResult]=useState('');const[loading,setLoading]=useState(false);const[err,setErr]=useState('');const[modo,setModo]=useState('sumulas');
@@ -3273,7 +3463,7 @@ function App(){
     {id:'obra',icon:'📚',label:'JurObra',desc:'Livros · Tratados',cor:'#8b1a1a'},
     {id:'peca',icon:'⚖️',label:'JurPeça v2',desc:'Petição · Parecer · Análise',cor:'#7c3aed'},
     {id:'fin',icon:'📑',label:'JurFinanceiro',desc:'Bancário · MC',cor:'#0369a1'},
-    {id:'bib',icon:'📖',label:'JurBiblioteca',desc:'Doutrina · ABNT',cor:'#c49a2a'},
+    {id:'bib',icon:'📖',label:'JurBiblioteca',desc:'Doutrina · ABNT · 78 obras',cor:'#c49a2a'},
     {id:'jur',icon:'🏛️',label:'JurJurisprudência',desc:'STF · STJ · TST',cor:'#0369a1'},
     {id:'docx',icon:'📄',label:'JurDocx Engine',desc:'Gerar .docx · Notas · ZIP',cor:'#166534'},
   ];
