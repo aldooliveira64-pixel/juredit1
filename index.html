@@ -265,16 +265,6 @@ const TOOLS={
       {ic:'🛡️',l:'Contestação (upload PI)',p:'Você recebeu uma PETIÇÃO INICIAL. Analise todos os pedidos, fundamentos e vícios. Elabore CONTESTAÇÃO COMPLETA: I — PRELIMINARES, II — IMPUGNAÇÃO DOS FATOS, III — DO MÉRITO, IV — DOS PEDIDOS. ② NOTAS DE RODAPÉ mínimo 15 notas.'},
       {ic:'⛏️',l:'Mineração de julgado',p:'Você recebeu um ACÓRDÃO. Extraia: ① RATIO DECIDENDI, ② OBITER DICTA, ③ VOTOS VENCIDOS, ④ LACUNAS NÃO ENFRENTADAS, ⑤ DISTINGUISHING, ⑥ TESES EXCLUSIVAS PARA APROVEITAMENTO ESTRATÉGICO. ② NOTAS DE RODAPÉ.'},
     ]},
-  fin:{id:'fin',icon:'📑',label:'JurFinanceiro',cor:'#0369a1',desc:'Bancário · Mercado de Capitais',
-    system:`Você é JurFinanceiro v1 — especialista em Direito Bancário e Mercado de Capitais com pesquisa web em tempo real. BASE NORMATIVA 2025: Lei 6.385/1976 (CVM), Lei 6.404/1976 (S.A.), Res. CVM 160/2022 (ofertas — substitui ICVM 400), Res. CVM 80/2022 (companhias abertas — substitui ICVM 480), Lei 10.931/2004 (CCB), Lei 9.514/1997 (CRI), Lei 11.076/2004 (CRA), Basileia III, PLDFT. ✗ NUNCA cite instrução CVM revogada como vigente. ✗ NUNCA invente números de PAS CVM ou julgados. Terminologia: *insider trading*, *bookbuilding*, *covenant*, *waterfall* em itálico.`,
-    acoes:[
-      {ic:'📑',l:'Escritura de Debêntures',p:'Elabore escritura de emissão de debêntures conforme Lei 6.404/76 e Res. CVM vigente, com espécie, conversibilidade, remuneração, vencimento, garantias, agente fiduciário e eventos de inadimplemento. Emissão de: '},
-      {ic:'📊',l:'Prospecto de Oferta',p:'Redija seção do prospecto conforme Res. CVM 160/2022 (fatores de risco / visão geral / destinação dos recursos / diluição) para companhia do setor: '},
-      {ic:'🏦',l:'CCB — Cédula de Crédito',p:'Elabore CCB completa conforme Lei 10.931/2004 com encargos, garantias e execução extrajudicial, para operação de: '},
-      {ic:'🌿',l:'CRI / CRA Securitização',p:'Elabore Termo de Securitização de CRI/CRA com créditos vinculados, regime fiduciário, agente fiduciário e eventos de liquidação antecipada, para: '},
-      {ic:'⚖️',l:'Defesa PAS CVM',p:'Elabore defesa em PAS CVM: I — PRELIMINARES (nulidade, prescrição, cerceamento), II — MÉRITO (ausência de dolo, nexo causal, ausência de dano), III — SANÇÃO (proporcionalidade, atenuantes art. 11 Lei 6.385/76). Caso: '},
-      {ic:'🔍',l:'Due Diligence Regulatório',p:'Realize due diligence jurídico-regulatório: I — LICENÇAS (CVM, BACEN, SUSEP, CADE), II — CONFORMIDADE (PLDFT, LGPD), III — CONTINGÊNCIAS, IV — RISCOS DE COMPLIANCE, V — RECOMENDAÇÕES. Empresa/operação: '},
-    ]},
   bib:{id:'bib',icon:'📖',label:'JurBiblioteca',cor:'#c49a2a',desc:'Doutrina · ABNT · 97 obras'},
   jur:{id:'jur',icon:'🏛️',label:'JurJurisprudência',cor:'#0369a1',desc:'STF · STJ · TST · Súmulas'},
 };
@@ -2754,6 +2744,522 @@ function JurPecaV2() {
   );
 }
 
+// ══════════════════════════════════════════════════════════════════
+// JURFINANCEIRO v1 — Fase 2 · Direito Bancário e Mercado de Capitais
+// ══════════════════════════════════════════════════════════════════
+
+const JF_NORMATIVAS=[
+  {id:"l6385",org:"Federal",tipo:"Lei",numero:"6.385/1976",tema:"Mercado de Valores Mobiliários e CVM",area:"Mercado de Capitais",tags:["CVM","valores mobiliários","insider trading"]},
+  {id:"l6404",org:"Federal",tipo:"Lei",numero:"6.404/1976",tema:"Sociedades por Ações — Lei das S.A.",area:"Mercado de Capitais",tags:["S.A.","ações","debêntures","assembleia"]},
+  {id:"l4728",org:"Federal",tipo:"Lei",numero:"4.728/1965",tema:"Mercado de Capitais — lei originária",area:"Mercado de Capitais",tags:["mercado de capitais","valores mobiliários"]},
+  {id:"l9514",org:"Federal",tipo:"Lei",numero:"9.514/1997",tema:"Sistema de Financiamento Imobiliário — CRI e alienação fiduciária de imóvel",area:"Mercado de Capitais",tags:["CRI","SFI","alienação fiduciária","securitização"]},
+  {id:"l10931",org:"Federal",tipo:"Lei",numero:"10.931/2004",tema:"Cédula de Crédito Bancário — CCB",area:"Direito Bancário",tags:["CCB","cédula bancária","título executivo"]},
+  {id:"l11076",org:"Federal",tipo:"Lei",numero:"11.076/2004",tema:"CRA, CPR, CDCA e LCA — títulos do agronegócio",area:"Mercado de Capitais",tags:["CRA","CPR","CDCA","LCA","agronegócio"]},
+  {id:"l13105",org:"Federal",tipo:"Lei",numero:"13.105/2015",tema:"Código de Processo Civil — execução de títulos",area:"Direito Bancário",tags:["CPC","execução","CCB","título executivo"]},
+  {id:"l4595",org:"Federal",tipo:"Lei",numero:"4.595/1964",tema:"Reforma Bancária — Sistema Financeiro Nacional",area:"Direito Bancário",tags:["SFN","BACEN","CMN","sistema financeiro"]},
+  {id:"l12529",org:"Federal",tipo:"Lei",numero:"12.529/2011",tema:"CADE — Defesa da Concorrência",area:"Mercado de Capitais",tags:["CADE","M&A","concentração","antitruste"]},
+  {id:"l13303",org:"Federal",tipo:"Lei",numero:"13.303/2016",tema:"Estatuto Jurídico da Empresa Pública e SEM",area:"Mercado de Capitais",tags:["empresa pública","SOE","governança","licitação"]},
+  {id:"res160",org:"CVM",tipo:"Resolução",numero:"160/2022",tema:"Ofertas públicas de distribuição de valores mobiliários (antiga ICVM 400 e 476)",area:"Mercado de Capitais",tags:["IPO","follow-on","prospecto","oferta pública","ICVM 400"]},
+  {id:"res80",org:"CVM",tipo:"Resolução",numero:"80/2022",tema:"Registro e prestação de informações periódicas — companhias abertas (antiga ICVM 480)",area:"Mercado de Capitais",tags:["companhia aberta","DFP","ITR","registro","ICVM 480"]},
+  {id:"res17",org:"CVM",tipo:"Resolução",numero:"17/2021",tema:"Fundos de Investimento",area:"Mercado de Capitais",tags:["FI","FIA","FIC","cotistas","regulamento","ICVM 555"]},
+  {id:"res44",org:"CVM",tipo:"Resolução",numero:"44/2021",tema:"Intermediários — corretoras e distribuidoras",area:"Mercado de Capitais",tags:["corretora","DTVM","CTVM","suitability","intermediação"]},
+  {id:"res35",org:"CVM",tipo:"Resolução",numero:"35/2021",tema:"Exercício do direito de voto em assembleias por investidores institucionais",area:"Mercado de Capitais",tags:["assembleia","voto","procuração","stewardship"]},
+  {id:"res59",org:"CVM",tipo:"Resolução",numero:"59/2021",tema:"Procedimento sancionador administrativo — PAS CVM",area:"Mercado de Capitais",tags:["PAS","processo sancionador","CVM","defesa","sanção"]},
+  {id:"res62",org:"CVM",tipo:"Resolução",numero:"62/2022",tema:"Fundos de Investimento em Participações — FIP",area:"Mercado de Capitais",tags:["FIP","private equity","venture capital","portfólio"]},
+  {id:"res4557",org:"CMN",tipo:"Resolução",numero:"4.557/2017",tema:"Estrutura de gerenciamento de riscos e de capital (Basileia III)",area:"Direito Bancário",tags:["risco","capital","Basileia III","gestão de riscos"]},
+  {id:"res4966",org:"CMN",tipo:"Resolução",numero:"4.966/2021",tema:"Instrumentos financeiros — IFRS 9 (provisão e mensuração)",area:"Direito Bancário",tags:["IFRS 9","provisão","PDD","instrumentos financeiros"]},
+  {id:"res4893",org:"CMN",tipo:"Resolução",numero:"4.893/2021",tema:"Política de responsabilidade social, ambiental e climática",area:"Direito Bancário",tags:["ESG","PRSAC","risco climático","sustentabilidade"]},
+  {id:"circ3461",org:"BACEN",tipo:"Circular",numero:"3.461/2009",tema:"PLDFT — prevenção à lavagem de dinheiro e financiamento ao terrorismo",area:"Direito Bancário",tags:["PLDFT","lavagem de dinheiro","compliance","KYC","COAF"]},
+  {id:"res4658",org:"CMN",tipo:"Resolução",numero:"4.658/2018",tema:"Política de segurança cibernética — instituições financeiras",area:"Direito Bancário",tags:["segurança cibernética","dados","LGPD","tecnologia"]},
+  {id:"res4656",org:"CMN",tipo:"Resolução",numero:"4.656/2018",tema:"Sociedade de Crédito Direto (SCD) e Fintech de empréstimo entre pessoas (SEP)",area:"Direito Bancário",tags:["fintech","SCD","SEP","open banking","crédito digital"]},
+  {id:"iosco",org:"IOSCO",tipo:"Princípio",numero:"(38 princípios)",tema:"IOSCO Principles for Securities Regulation",area:"Mercado de Capitais",tags:["IOSCO","regulação internacional","disclosure","proteção ao investidor"]},
+  {id:"basileiaiii",org:"BIS",tipo:"Acordo",numero:"Basileia III (2010/rev.2017)",tema:"Requisitos de capital, alavancagem e liquidez para bancos internacionalmente ativos",area:"Direito Bancário",tags:["Basileia III","capital","liquidez","LCR","NSFR","alavancagem"]},
+  {id:"mifid2",org:"EU",tipo:"Diretiva",numero:"MiFID II (2014/65/EU)",tema:"Mercados de Instrumentos Financeiros — proteção ao investidor e transparência",area:"Mercado de Capitais",tags:["MiFID II","suitability","best execution","transparência","UE"]},
+  {id:"dodd",org:"EUA",tipo:"Lei",numero:"Dodd-Frank Act (2010)",tema:"Reforma do sistema financeiro americano pós-2008",area:"Direito Bancário",tags:["Dodd-Frank","derivativos","CFPB","Volcker Rule","swap"]},
+];
+
+const JF_TIPOS_DOC={
+  debenture:{label:"Escritura de Debêntures",icon:"📑",cor:"#0369a1",regulador:"CVM",desc:"Escritura de emissão de debêntures simples ou conversíveis com todos os termos obrigatórios",
+    acoes:[
+      {ic:"📑",l:"Escritura completa",p:"Elabore escritura de emissão de debêntures completa conforme Lei 6.404/76 (art. 59 e ss.) e Resolução CVM pertinente, com: espécie, conversibilidade, série, quantidade, valor nominal unitário, remuneração (indexador + spread), amortização, vencimento, garantias, agente fiduciário, eventos de inadimplemento, assembleia de debenturistas e cláusulas de repactuação. Emissão de: "},
+      {ic:"📋",l:"Cláusula de remuneração",p:"Redija a cláusula de REMUNERAÇÃO com juros remuneratórios, periodicidade, base de cálculo, DU/360, convenção de dias úteis e feriados, para debêntures indexadas a: "},
+      {ic:"⚠️",l:"Eventos de inadimplemento",p:"Redija as cláusulas de EVENTOS DE INADIMPLEMENTO (vencimento antecipado automático e não automático), com cross-default, change of control e covenants financeiros para: "},
+      {ic:"🏛️",l:"Assembleia de debenturistas",p:"Redija as cláusulas de CONVOCAÇÃO E DELIBERAÇÃO da Assembleia de Debenturistas, quórum de instalação e deliberação por tipo de matéria, conforme Lei 6.404/76 e escritura padrão de mercado, para: "},
+      {ic:"🔍",l:"Due diligence jurídica",p:"Realize due diligence jurídica da emissora para oferta de debêntures: verifique condições de emissão, limitação estatutária, deliberação societária, registro CVM e eventuais restrições para: "},
+    ]
+  },
+  prospecto:{label:"Prospecto de Oferta Pública",icon:"📊",cor:"#7c3aed",regulador:"CVM",desc:"Prospecto preliminar ou definitivo de oferta pública primária (IPO) ou secundária (follow-on)",
+    acoes:[
+      {ic:"📊",l:"Fatores de risco completos",p:"Redija a seção de FATORES DE RISCO do prospecto conforme Resolução CVM 160, cobrindo: riscos macroeconômicos, setoriais, operacionais, regulatórios, societários e relativos aos valores mobiliários, para companhia do setor: "},
+      {ic:"🏢",l:"Visão geral da emissora",p:"Redija a seção SUMÁRIO DO EMISSOR / VISÃO GERAL DA COMPANHIA conforme padrão CVM: histórico, atividades, modelo de negócio, vantagens competitivas e estratégia, para: "},
+      {ic:"💰",l:"Destinação dos recursos",p:"Redija a seção DESTINAÇÃO DOS RECURSOS com: montante total, percentuais por destinação, cronograma de utilização, impacto na estrutura de capital e plano de negócios, para oferta de R$ "},
+      {ic:"📉",l:"Diluição dos acionistas",p:"Redija a seção DILUIÇÃO com: posição acionária antes e após a oferta, cálculo da diluição percentual dos acionistas existentes, valor patrimonial por ação pré e pós-oferta, para: "},
+      {ic:"⚖️",l:"Descrição dos valores mobiliários",p:"Redija a seção DESCRIÇÃO DOS VALORES MOBILIÁRIOS OFERTADOS com todos os direitos, restrições, liquidez esperada, direitos econômicos e políticos, para: "},
+    ]
+  },
+  ccb:{label:"Cédula de Crédito Bancário",icon:"🏦",cor:"#065f46",regulador:"BACEN",desc:"CCB completa conforme Lei 10.931/2004 com garantias, encargos e execução extrajudicial",
+    acoes:[
+      {ic:"🏦",l:"CCB completa",p:"Elabore CCB completa conforme Lei 10.931/2004 com: qualificação das partes, valor da operação, taxa de juros remuneratórios, encargos moratórios, IOF, prazo de vencimento, forma de pagamento, garantias reais ou fidejussórias, cláusula de execução extrajudicial e foro, para operação de crédito de: "},
+      {ic:"📋",l:"Cláusula de encargos",p:"Redija a cláusula de ENCARGOS FINANCEIROS da CCB com: taxa de juros remuneratórios (nominal e efetiva anual), capitalização, encargos moratórios (multa + juros), correção monetária e IOF, para operação de: "},
+      {ic:"🛡️",l:"Garantias reais e fidejussórias",p:"Redija as cláusulas de GARANTIAS da CCB com: alienação fiduciária de bens / cessão fiduciária de créditos / hipoteca, ou fiança/aval dos sócios com renúncia expressa aos benefícios de ordem e exoneração, para: "},
+      {ic:"⚡",l:"Execução extrajudicial",p:"Redija a cláusula de EXECUÇÃO EXTRAJUDICIAL da CCB conforme arts. 37 e ss. da Lei 10.931/2004, com procedimento de consolidação da propriedade, leilão e liquidação extrajudicial, para: "},
+    ]
+  },
+  cri_cra:{label:"CRI / CRA — Securitização",icon:"🌿",cor:"#92400e",regulador:"CVM",desc:"Termo de Securitização de CRI (Lei 9.514/97) ou CRA (Lei 11.076/04) com regime fiduciário",
+    acoes:[
+      {ic:"🌿",l:"Termo de Securitização completo",p:"Elabore Termo de Securitização de CRI/CRA completo com: identificação dos créditos vinculados, regime fiduciário (separação patrimonial), emissora securitizadora, agente fiduciário, remuneração, série, prazo, eventos de liquidação antecipada e assembleias de titulares, para operação de: "},
+      {ic:"🔗",l:"Lastro e créditos vinculados",p:"Redija a seção de CRÉDITOS IMOBILIÁRIOS / AGRÍCOLAS VINCULADOS com: identificação, valor, cedente, cessão fiduciária dos créditos ao patrimônio separado, subordinação e razão de sobrecolateralização, para: "},
+      {ic:"🏛️",l:"Regime fiduciário",p:"Redija as cláusulas de REGIME FIDUCIÁRIO: separação do patrimônio, limitação de responsabilidade da emissora, afetação dos créditos ao CRI/CRA, não-comunicabilidade com credores gerais da securitizadora, para: "},
+      {ic:"📊",l:"Análise de estrutura",p:"Faça análise crítica completa da estrutura de securitização proposta: riscos de crédito do lastro, concentração, subordinação, covenants, reforços de crédito (overcollateralization, fundo de reserva, carta de crédito), para: "},
+    ]
+  },
+  pas_cvm:{label:"Defesa em PAS CVM",icon:"⚖️",cor:"#991b1b",regulador:"CVM",desc:"Defesa em Processo Administrativo Sancionador da CVM com precedentes e teses exclusivas",
+    acoes:[
+      {ic:"⚖️",l:"Defesa administrativa completa",p:"Elabore defesa completa em Processo Administrativo Sancionador da CVM com: I — DAS PRELIMINARES (nulidade processual, prescrição, decadência, cerceamento de defesa, incompetência), II — DO MÉRITO (ausência de dolo ou culpa grave, nexo causal, ausência de dano efetivo ao mercado, boa-fé), III — DA SANÇÃO (proporcionalidade, precedentes favoráveis da CVM, atenuantes do art. 11 da Lei 6.385/76), para o caso: "},
+      {ic:"🚫",l:"Preliminar de prescrição",p:"Elabore PRELIMINAR DE PRESCRIÇÃO em PAS CVM com: prazo prescricional (art. 1º do Decreto 20.910/32 ou norma especial), dies a quo, causas interruptivas, jurisprudência do CRSFN e precedentes da própria CVM favoráveis à prescrição, para acusação de: "},
+      {ic:"💼",l:"Ausência de insider trading",p:"Elabore defesa de mérito por AUSÊNCIA DE INSIDER TRADING com: inexistência de informação privilegiada na data da operação, caráter público da informação, motivação legítima para a operação (razões de portfólio), ausência de elemento subjetivo, e precedentes CVM/CRSFN favoráveis, para: "},
+      {ic:"📊",l:"Proporcionalidade da sanção",p:"Elabore tópico de PROPORCIONALIDADE DA SANÇÃO com: análise dos critérios do art. 11, §2º da Lei 6.385/76 (natureza, gravidade, vantagem auferida, situação econômica, reincidência, colaboração), precedentes de penalidades similares da CVM e pedido de absolvição ou, subsidiariamente, redução da pena, para: "},
+      {ic:"🔍",l:"Análise de precedentes CVM",p:"Pesquise e analise precedentes do processo administrativo sancionador da CVM e decisões do CRSFN sobre: "},
+    ]
+  },
+  due_diligence:{label:"Due Diligence Regulatório",icon:"🔍",cor:"#374151",regulador:"CVM/BACEN",desc:"Due diligence jurídico-regulatório para M&A, IPO ou operações estruturadas",
+    acoes:[
+      {ic:"🔍",l:"Due diligence completo",p:"Realize due diligence jurídico-regulatório completo identificando: I — LICENÇAS E AUTORIZAÇÕES REGULATÓRIAS, II — CONFORMIDADE REGULATÓRIA (PLDFT, segurança cibernética, LGPD, governança), III — CONTINGÊNCIAS REGULATÓRIAS (PAS CVM, processos administrativos BACEN, autos de infração), IV — RISCOS DE COMPLIANCE, V — RECOMENDAÇÕES E CONDIÇÕES PRECEDENTES, para: "},
+      {ic:"🏦",l:"Due diligence bancário",p:"Realize due diligence de instituição financeira para aquisição ou parceria, focando em: autorização do BACEN, capital regulatório (índice de Basileia), carteira de crédito e nível de provisionamento, enquadramento em PLDFT, segurança cibernética e processos regulatórios pendentes, para: "},
+      {ic:"📋",l:"Checklist IPO regulatório",p:"Elabore checklist regulatório completo para IPO na B3/CVM: registro de companhia aberta (Res. CVM 80), registro de oferta (Res. CVM 160), segmento de listagem (Novo Mercado, N2, N1, Básico), requisitos de governança, estrutura societária, free-float, destaques dos estatutos, para: "},
+      {ic:"⚠️",l:"Mapeamento de riscos regulatórios",p:"Mapeie os riscos regulatórios da operação proposta com matriz de probabilidade × impacto: identifique eventuais vedações regulatórias, necessidade de aprovações prévias (BACEN, CVM, CADE, SUSEP), condições precedentes e mitigantes, para: "},
+    ]
+  },
+  consulta_reg:{label:"Consulta ao Regulador",icon:"📮",cor:"#0369a1",regulador:"CVM/BACEN/CMN",desc:"Consulta formal à CVM, BACEN ou CMN com fundamentos técnicos e pedido de orientação",
+    acoes:[
+      {ic:"📮",l:"Consulta formal CVM",p:"Elabore consulta formal bem fundamentada à CVM com: identificação do consulente, descrição precisa da operação ou situação fática, questão jurídica submetida, fundamentos legais e regulatórios (identificar a norma potencialmente aplicável), entendimento do consulente, jurisprudência administrativa pertinente e pedido de orientação formal, sobre: "},
+      {ic:"🏦",l:"Consulta formal BACEN",p:"Elabore consulta formal ao BACEN com: apresentação da instituição consulente, descrição da operação ou produto financeiro pretendido, enquadramento normativo atual, pontos de incerteza regulatória, impacto operacional, e solicitação de manifestação sobre o enquadramento/autorização necessária, sobre: "},
+      {ic:"📋",l:"Pedido de dispensa CVM",p:"Elabore pedido de dispensa de requisito ou de registro à CVM com: identificação da norma objeto da dispensa, fundamentos para a dispensa (ausência de propósito protetivo, equivalência funcional, ônus desproporcional), precedentes de dispensas similares concedidas e comprometimentos assumidos pelo requerente, para: "},
+    ]
+  },
+  analise_normativa:{label:"Análise de Norma Regulatória",icon:"📋",cor:"#c49a2a",regulador:"CVM/BACEN/CMN",desc:"Análise técnica de Instrução CVM, Circular BACEN, Resolução CMN ou norma internacional",
+    acoes:[
+      {ic:"📋",l:"Análise normativa completa",p:"Analise a norma regulatória indicada com: I — ESCOPO DE APLICAÇÃO (sujeitos obrigados, atividades reguladas, exclusões), II — OBRIGAÇÕES IMPOSTAS (principais e acessórias), III — PRAZOS DE ADAPTAÇÃO, IV — REGIME SANCIONATÓRIO (infrações, sanções aplicáveis, critérios de graduação), V — IMPACTO OPERACIONAL E DE COMPLIANCE, VI — PONTOS DE ATENÇÃO E RECOMENDAÇÕES. Norma: "},
+      {ic:"🔄",l:"Comparativo ICVM × Resolução",p:"Elabore análise comparativa entre a instrução CVM revogada e a nova resolução CVM correspondente, identificando: mudanças substanciais, impacto na prática de mercado, prazo de adaptação, pontos de maior atenção para instituições já enquadradas, para: "},
+      {ic:"🌐",l:"Impacto do Direito Internacional",p:"Analise o impacto das normas internacionais indicadas sobre a regulação brasileira vigente, comparando: abordagem regulatória, principais divergências, tendências de convergência e implicações para operações transfronteiriças. Norma(s): "},
+    ]
+  },
+};
+
+const JF_REGULADORES=["CVM","BACEN","CMN","SUSEP","CADE","IOSCO","B3","Todos"];
+const JF_NIVEIS=[
+  {v:"Especialistas em Mercado de Capitais e Regulação Financeira",l:"Especialista MC/Regulação"},
+  {v:"Operadores do Direito — advogados e compliance officers",l:"Operadores do Direito"},
+  {v:"Administradores e gestores de fundos",l:"Gestores e Administradores"},
+  {v:"Executivos sênior e diretores de instituições financeiras",l:"Alta Direção"},
+];
+
+function jfBuildSystem(tipoKey,regulador,nivel){
+  const t=JF_TIPOS_DOC[tipoKey];
+  return `Você é JurFinanceiro Excellence v1 — especialista em Direito Bancário e Mercado de Capitais com pesquisa web em tempo real.
+
+Tipo de documento: ${t.label}
+Regulador primário: ${regulador} | Nível do destinatário: ${nivel}
+
+BASE NORMATIVA VIGENTE EM 2025:
+• Lei 6.385/1976 (CVM e Mercado de Valores Mobiliários)
+• Lei 6.404/1976 (Lei das S.A.) — versão atualizada
+• Resolução CVM 160/2022 (Ofertas Públicas — substitui ICVM 400 e 476)
+• Resolução CVM 80/2022 (Companhias Abertas — substitui ICVM 480)
+• Lei 10.931/2004 (CCB) | Lei 9.514/1997 (CRI/SFI) | Lei 11.076/2004 (CRA)
+• Lei 4.595/1964 (SFN) | Basileia III | PLDFT (Circ. BACEN 3.461/2009)
+
+REGRAS ABSOLUTAS:
+✗ NUNCA cite instrução CVM revogada como vigente — use a Resolução CVM correspondente
+✗ NUNCA invente números de PAS CVM, processos ou julgados sem confirmar
+✗ Se não confirmado → "a CVM tem entendimento consolidado no sentido de..." / "conforme a prática de mercado..."
+✓ Indique sempre se a norma foi revogada ou alterada
+✓ Para teses regulatórias: cite precedente administrativo (PAS CVM, CRSFN) quando disponível
+✓ Terminologia de mercado: use linguagem técnica precisa — underwriting, bookbuilding, carve-out, covenant, waterfall, OIC, FIDC, FII, FIP
+
+ESTILO:
+• Linguagem técnico-regulatória precisa
+• Termos estrangeiros em *itálico* quando não incorporados ao vernáculo jurídico
+• Estrutura: numeração com algarismos romanos para seções principais (I, II, III...)
+• Ao final de análises: § de recomendação prática / conclusão operacional`;
+}
+
+async function jfExportarDocx(rawText,titulo){
+  const lines=rawText.split("\n");const paras=[];
+  const emP=()=>`<w:p><w:pPr><w:spacing w:before="0" w:after="60"/></w:pPr></w:p>`;
+  function wPj(txt,o={}){const al=o.center?"center":"both";const ix=o.indent?`<w:ind w:firstLine="${o.indent}"/>`:"";const pp=`<w:pPr><w:spacing w:before="${o.sb||0}" w:after="${o.sa||60}" w:line="${o.lv||276}" w:lineRule="auto"/>${ix}<w:jc w:val="${al}"/></w:pPr>`;const sz=(o.pt||12)*2;const F=`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>`;const rpr=`<w:rPr>${o.b?`<w:b/><w:bCs/>`:""}${o.i?`<w:i/><w:iCs/>`:""}${F}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr>`;return`<w:p>${pp}<w:r>${rpr}<w:t xml:space="preserve">${ex(txt)}</w:t></w:r></w:p>`;}
+  paras.push(emP(),emP());
+  paras.push(wPj("Direito Bancário e Mercado de Capitais",{center:true,pt:11,i:true,sa:60,lv:240}));
+  paras.push(wPj(titulo||"Documento Financeiro",{center:true,pt:18,b:true,sb:60,sa:160,lv:280}));
+  paras.push(emP());
+  for(const line of lines){
+    const raw=line.trim();if(!raw){paras.push(emP());continue;}
+    if(/^-{3,}$/.test(raw)){paras.push(`<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="000000"/></w:pBdr><w:spacing w:before="120" w:after="120"/></w:pPr></w:p>`);continue;}
+    if(raw===raw.toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(raw)&&raw.length>4&&raw.length<120&&!/^\d/.test(raw)){paras.push(wPj(raw,{b:true,pt:12,sb:360,sa:120,lv:240}));continue;}
+    if(/^\*\*[^*]+\*\*$/.test(raw)){paras.push(wPj(raw.replace(/\*\*/g,""),{b:true,pt:12,sb:300,sa:100,lv:276}));continue;}
+    if(/^#{1,3}\s/.test(raw)){paras.push(wPj(raw.replace(/^#+\s/,""),{b:true,pt:12,sb:300,sa:100,lv:276}));continue;}
+    paras.push(wPj(raw.replace(/\*\*/g,""),{indent:709,pt:12,lv:276}));
+  }
+  const hTxt=ex((titulo||"JurFinanceiro").slice(0,80));
+  const HDR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="right"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:after="80"/></w:pPr><w:r><w:rPr><w:i/><w:color w:val="555555"/><w:sz w:val="16"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>${hTxt}</w:t></w:r></w:p></w:hdr>`;
+  const FTR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="center"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:before="80"/></w:pPr><w:r><w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>— </w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r><w:r><w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t> —</w:t></w:r></w:p></w:ftr>`;
+  const docXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${paras.join("")}<w:sectPr><w:headerReference w:type="default" r:id="rH1"/><w:footerReference w:type="default" r:id="rF1"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1800" w:right="1800" w:bottom="1800" w:left="1800" w:header="708" w:footer="708"/></w:sectPr></w:body></w:document>`;
+  const sy=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:jc w:val="both"/></w:pPr></w:style></w:styles>`;
+  const rR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const rD=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rH1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rF1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>`;
+  const se=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>`;
+  const ct=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>`;
+  const ft=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:font w:name="Times New Roman"><w:panose1 w:val="02020603050405020304"/><w:charset w:val="00"/><w:family w:val="roman"/><w:pitch w:val="variable"/></w:font></w:fonts>`;
+  const fnR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`;
+  const files=[{name:"[Content_Types].xml",data:strToU8(ct)},{name:"_rels/.rels",data:strToU8(rR)},{name:"word/document.xml",data:strToU8(docXml)},{name:"word/styles.xml",data:strToU8(sy)},{name:"word/settings.xml",data:strToU8(se)},{name:"word/fontTable.xml",data:strToU8(ft)},{name:"word/header1.xml",data:strToU8(HDR)},{name:"word/footer1.xml",data:strToU8(FTR)},{name:"word/_rels/document.xml.rels",data:strToU8(rD)},{name:"word/_rels/footnotes.xml.rels",data:strToU8(fnR)}];
+  const zd=buildZip(files);
+  function u8b64(u){let b="";const c=8192;for(let i=0;i<u.length;i+=c)b+=String.fromCharCode(...u.subarray(i,i+c));return btoa(b);}
+  const slug=(titulo||"JurFin").replace(/[^a-zA-Z0-9]/g,"_").slice(0,30);
+  const filename=slug+"_"+new Date().toISOString().slice(0,10)+".docx";
+  const dataUri="data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,"+u8b64(zd);
+  let url;try{const blob=new Blob([zd],{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});url=URL.createObjectURL(blob);}catch(_){url=dataUri;}
+  const a=document.createElement("a");a.href=url;a.download=filename;a.style.display="none";document.body.appendChild(a);a.click();
+  setTimeout(()=>{document.body.removeChild(a);if(url!==dataUri)URL.revokeObjectURL(url);},1000);
+  return filename;
+}
+
+async function jfLerArquivo(file){
+  const ext=file.name.split(".").pop().toLowerCase();
+  if(ext==="pdf"){return new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>{res({tipo:"pdf",base64:e.target.result.split(",")[1],nome:file.name,size:file.size});};r.onerror=rej;r.readAsDataURL(file);});}
+  if(["docx","doc"].includes(ext)){return new Promise((res,rej)=>{const r=new FileReader();r.onload=async e=>{try{const x=await mammoth.extractRawText({arrayBuffer:e.target.result});res({tipo:"docx",texto:x.value,nome:file.name,size:file.size});}catch(e){rej(e);}};r.onerror=rej;r.readAsArrayBuffer(file);});}
+  throw new Error("Use PDF ou DOCX.");
+}
+
+function JFRichText({content}){
+  return(<div style={{lineHeight:1.75,fontSize:13}}>
+    {content.split("\n").map((line,i)=>{
+      if(!line.trim())return<div key={i} style={{height:8}}/>;
+      const parts=[];const re=/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;let last=0,m;
+      while((m=re.exec(line))!==null){if(m.index>last)parts.push(<span key={last}>{line.slice(last,m.index)}</span>);const tok=m[0];if(tok.startsWith("**"))parts.push(<strong key={m.index}>{tok.slice(2,-2)}</strong>);else if(tok.startsWith("*"))parts.push(<em key={m.index}>{tok.slice(1,-1)}</em>);else parts.push(<code key={m.index} style={{background:"rgba(0,0,0,.07)",padding:"1px 5px",borderRadius:3,fontFamily:"monospace",fontSize:11}}>{tok.slice(1,-1)}</code>);last=m.index+tok.length;}
+      if(last<line.length)parts.push(<span key={last}>{line.slice(last)}</span>);
+      return<div key={i}>{parts}</div>;
+    })}
+  </div>);
+}
+
+function JFModalNormativas({onClose,onUsar}){
+  const[busca,setBusca]=useState("");
+  const[org,setOrg]=useState("Todas");
+  const C={border:"#ddd9d0",bg:"#f5f4f1",nav:"#12192e",gold:"#c49a2a",textSec:"#555",textTer:"#999"};
+  const resultado=JF_NORMATIVAS.filter(n=>{
+    const q=busca.toLowerCase();
+    const mb=!busca||[n.numero,n.tema,...(n.tags||[])].some(s=>s.toLowerCase().includes(q));
+    const mo=org==="Todas"||n.org===org;
+    return mb&&mo;
+  });
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(5,10,25,.87)",zIndex:4000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"white",borderRadius:10,width:"100%",maxWidth:700,maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 40px 100px rgba(0,0,0,.6)"}}>
+        <div style={{background:`linear-gradient(90deg,#0f1a33,${C.nav})`,padding:"14px 22px",borderRadius:"10px 10px 0 0",display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontSize:22}}>📚</span>
+          <span style={{color:"white",fontWeight:700,fontSize:15,fontFamily:"Georgia,serif",flex:1}}>Base Normativa — {JF_NORMATIVAS.length} normas</span>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,.12)",border:"1px solid rgba(255,255,255,.2)",color:"white",width:32,height:32,borderRadius:5,cursor:"pointer",fontSize:18}}>×</button>
+        </div>
+        <div style={{padding:"12px 18px",borderBottom:`1px solid ${C.border}`,display:"flex",gap:10}}>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por número, tema ou tag..." style={{flex:1,padding:"8px 12px",border:`1px solid ${C.border}`,borderRadius:4,fontFamily:"Georgia,serif",fontSize:13,outline:"none"}}/>
+          <select value={org} onChange={e=>setOrg(e.target.value)} style={{padding:"8px",border:`1px solid ${C.border}`,borderRadius:4,fontFamily:"monospace",fontSize:12,outline:"none",background:C.bg}}>
+            {["Todas","Federal","CVM","CMN","BACEN","IOSCO","BIS","EU","EUA"].map(o=><option key={o} value={o}>{o}</option>)}
+          </select>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"8px 18px"}}>
+          {resultado.map(n=>(
+            <div key={n.id} style={{padding:"10px 12px",borderBottom:`1px solid ${C.border}`,display:"flex",gap:10,alignItems:"flex-start"}}>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+                  <span style={{fontSize:10,fontFamily:"monospace",padding:"1px 7px",background:"#ede8df",borderRadius:10,color:"#555"}}>{n.org}</span>
+                  <span style={{fontSize:11,fontWeight:700,color:C.nav}}>{n.tipo} {n.numero}</span>
+                </div>
+                <div style={{fontSize:12,color:C.textSec,lineHeight:1.5,marginBottom:4}}>{n.tema}</div>
+                <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>{(n.tags||[]).slice(0,5).map(t=><span key={t} style={{fontSize:9,padding:"1px 6px",background:"#f0ebe0",borderRadius:8,color:C.textTer,fontFamily:"monospace"}}>{t}</span>)}</div>
+              </div>
+              <button onClick={()=>{onUsar(`${n.tipo} ${n.numero} — ${n.tema}`);onClose();}}
+                style={{padding:"4px 10px",background:"transparent",border:`1px solid ${C.border}`,borderRadius:4,cursor:"pointer",fontSize:10,fontFamily:"monospace",color:C.textSec,flexShrink:0}}>
+                → Usar
+              </button>
+            </div>
+          ))}
+          {resultado.length===0&&<div style={{textAlign:"center",padding:"32px",color:C.textTer,fontSize:13}}>Nenhuma norma encontrada</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function JurFinanceiro(){
+  const[tipoKey,setTipoKey]=useState("debenture");
+  const[regulador,setRegulador]=useState("CVM");
+  const[nivel,setNivel]=useState(JF_NIVEIS[0].v);
+  const[titulo,setTitulo]=useState("");
+  const[msgs,setMsgs]=useState([]);
+  const[input,setInput]=useState("");
+  const[loading,setLoading]=useState(false);
+  const[exportStatus,setExportStatus]=useState("idle");
+  const[sidebarOpen,setSidebarOpen]=useState(true);
+  const[showNorm,setShowNorm]=useState(false);
+  const[doc,setDoc]=useState(null);
+  const[uploadErr,setUploadErr]=useState("");
+  const[uploadLoading,setUploadLoading]=useState(false);
+  const[showUpload,setShowUpload]=useState(false);
+  const fileInputRef=useRef(null);
+  const bottomRef=useRef(null);
+  const taRef=useRef(null);
+
+  const tipo=JF_TIPOS_DOC[tipoKey];
+  const C={bg:"#f5f4f1",white:"white",nav:"#12192e",gold:"#c49a2a",border:"#ddd9d0",textPri:"#111",textSec:"#555",textTer:"#999",cor:tipo.cor};
+  const corReg={CVM:"#7c3aed",BACEN:"#0369a1",CMN:"#065f46",SUSEP:"#92400e",CADE:"#374151",IOSCO:"#185FA5",B3:"#c45c1a",Todos:"#555"}[regulador]||"#555";
+
+  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[msgs,loading]);
+  useEffect(()=>{if(taRef.current){taRef.current.style.height="auto";taRef.current.style.height=Math.min(taRef.current.scrollHeight,160)+"px";}},[input]);
+  useEffect(()=>{setMsgs([]);setDoc(null);},[tipoKey]);
+
+  const handleFile=async(file)=>{
+    if(!file)return;
+    if(file.size>30*1024*1024){setUploadErr("Arquivo muito grande (máx. 30MB).");return;}
+    setUploadErr("");setUploadLoading(true);
+    try{const d=await jfLerArquivo(file);setDoc(d);setShowUpload(false);}
+    catch(e){setUploadErr(e.message||"Erro ao ler.");}
+    setUploadLoading(false);
+  };
+
+  const usarNormativa=(txt)=>{
+    setInput(prev=>prev?prev+" Consulte: "+txt:"Com base na "+txt+", ");
+    taRef.current?.focus();
+  };
+
+  const enviar=useCallback(async(texto)=>{
+    const prompt=texto||input.trim();
+    if(!prompt&&!doc)return;
+    if(loading)return;
+    setInput("");
+
+    let msgContent;
+    if(doc){
+      const instrucao=prompt||`Analise este documento conforme o tipo "${tipo.label}" e as normas regulatórias vigentes.`;
+      if(doc.tipo==="pdf"){
+        msgContent=[{type:"document",source:{type:"base64",media_type:"application/pdf",data:doc.base64}},{type:"text",text:instrucao}];
+      }else{
+        msgContent=[{type:"text",text:`DOCUMENTO (${doc.nome}):\n\n${doc.texto.slice(0,30000)}\n\n---\n\n${instrucao}`}];
+      }
+    }else{
+      msgContent=prompt;
+    }
+
+    const novasMsgs=[...msgs,{role:"user",content:typeof msgContent==="string"?msgContent:prompt,docContent:doc?msgContent:null,docNome:doc?.nome}];
+    setMsgs(novasMsgs);setLoading(true);
+
+    try{
+      const k=getKey();
+      if(!k)throw new Error('Chave não configurada.');
+      const resp=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-api-key":k,"anthropic-version":"2023-06-01","anthropic-beta":"web-search-2025-03-05","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",max_tokens:4000,
+          system:jfBuildSystem(tipoKey,regulador,nivel),
+          messages:novasMsgs.map(m=>({role:m.role,content:m.docContent||m.content})),
+          tools:[{type:"web_search_20250305",name:"web_search"}],
+        }),
+      });
+      const data=await resp.json();
+      if(!resp.ok)throw new Error(data?.error?.message||`Erro ${resp.status}`);
+      const txt=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
+      setMsgs(prev=>[...prev,{role:"assistant",content:txt||"Sem resposta."}]);
+      setDoc(null);
+    }catch(e){
+      setMsgs(prev=>[...prev,{role:"assistant",content:"❌ "+( e.message||"Erro de conexão. Tente novamente.")}]);
+    }finally{setLoading(false);}
+  },[msgs,input,loading,tipoKey,regulador,nivel,doc]);
+
+  const handleExport=async()=>{
+    const conteudo=msgs.filter(m=>m.role==="assistant").map(m=>m.content).join("\n\n");
+    if(!conteudo.trim())return;
+    setExportStatus("loading");
+    try{await jfExportarDocx(conteudo,titulo||tipo.label);setExportStatus("done");setTimeout(()=>setExportStatus("idle"),5000);}
+    catch(e){console.error(e);setExportStatus("error");setTimeout(()=>setExportStatus("idle"),3000);}
+  };
+
+  const hasContent=msgs.some(m=>m.role==="assistant");
+
+  return(
+    <div style={{height:"100%",display:"flex",flexDirection:"column",background:C.bg,fontFamily:"Georgia,serif",color:C.textPri,overflow:"hidden"}}>
+
+      {/* TOP BAR */}
+      <div style={{background:C.nav,padding:"0 18px",display:"flex",alignItems:"center",gap:10,height:48,flexShrink:0,borderBottom:"1px solid #0a1020"}}>
+        <button onClick={()=>setSidebarOpen(v=>!v)} style={{background:"none",border:"none",color:"rgba(255,255,255,.5)",cursor:"pointer",fontSize:16}}>☰</button>
+        <span style={{color:C.gold,fontFamily:"monospace",fontWeight:700,fontSize:13,letterSpacing:".1em"}}>JURFINANCEIRO</span>
+        <span style={{background:`${C.gold}25`,border:`1px solid ${C.gold}55`,color:C.gold,fontSize:9,padding:"2px 8px",borderRadius:2,fontFamily:"monospace"}}>v1 · Fase 2</span>
+        <div style={{width:1,height:20,background:"rgba(255,255,255,.1)",margin:"0 4px"}}/>
+        <span style={{fontSize:12,color:"rgba(255,255,255,.65)"}}>{tipo.icon} {tipo.label}</span>
+        <span style={{fontSize:10,padding:"2px 8px",background:`${corReg}25`,border:`1px solid ${corReg}50`,color:corReg,borderRadius:10,fontFamily:"monospace"}}>{regulador}</span>
+        <div style={{marginLeft:"auto",display:"flex",gap:8,alignItems:"center"}}>
+          <button onClick={()=>setShowNorm(true)} style={{padding:"5px 12px",background:"rgba(255,255,255,.08)",color:"rgba(255,255,255,.6)",border:"1px solid rgba(255,255,255,.12)",borderRadius:3,fontSize:10,fontFamily:"monospace",cursor:"pointer"}}>📚 Normativas</button>
+          {hasContent&&<button onClick={handleExport} disabled={exportStatus==="loading"} style={{padding:"5px 14px",background:exportStatus==="done"?"#166534":tipo.cor,color:"white",border:"none",borderRadius:3,fontSize:11,fontFamily:"monospace",cursor:"pointer"}}>{exportStatus==="loading"?"⏳...":exportStatus==="done"?"✅ gerado!":"⬇ .docx"}</button>}
+          {msgs.length>0&&<button onClick={()=>{if(confirm("Limpar?"))setMsgs([]);}} style={{padding:"5px 10px",background:"transparent",color:"rgba(255,255,255,.25)",border:"1px solid rgba(255,255,255,.08)",borderRadius:3,fontSize:10,fontFamily:"monospace",cursor:"pointer"}}>limpar</button>}
+        </div>
+      </div>
+
+      <div style={{flex:1,display:"flex",overflow:"hidden"}}>
+
+        {/* SIDEBAR */}
+        {sidebarOpen&&(
+          <div style={{width:248,background:C.white,borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",overflow:"hidden",flexShrink:0}}>
+
+            <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
+              <div style={{fontSize:9,fontFamily:"monospace",color:C.textTer,textTransform:"uppercase",letterSpacing:".07em",marginBottom:6}}>Tipo de documento</div>
+              {Object.entries(JF_TIPOS_DOC).map(([k,t])=>(
+                <button key={k} onClick={()=>setTipoKey(k)}
+                  style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"6px 10px",marginBottom:3,border:"none",borderRadius:4,cursor:"pointer",textAlign:"left",background:tipoKey===k?`${t.cor}15`:"transparent",color:tipoKey===k?t.cor:C.textSec,fontWeight:tipoKey===k?700:400,borderLeft:tipoKey===k?`3px solid ${t.cor}`:"3px solid transparent",fontSize:12,fontFamily:"Georgia,serif",transition:"all .15s"}}>
+                  <span>{t.icon}</span><span>{t.label}</span>
+                </button>
+              ))}
+            </div>
+
+            <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
+              <div style={{fontSize:9,fontFamily:"monospace",color:C.textTer,textTransform:"uppercase",letterSpacing:".07em",marginBottom:4}}>Regulador</div>
+              <select value={regulador} onChange={e=>setRegulador(e.target.value)} style={{width:"100%",padding:"6px 8px",border:`1px solid ${C.border}`,borderRadius:4,fontFamily:"monospace",fontSize:12,background:C.bg,outline:"none",marginBottom:8}}>
+                {JF_REGULADORES.map(r=><option key={r} value={r}>{r}</option>)}
+              </select>
+              <div style={{fontSize:9,fontFamily:"monospace",color:C.textTer,textTransform:"uppercase",letterSpacing:".07em",marginBottom:4}}>Nível</div>
+              <select value={nivel} onChange={e=>setNivel(e.target.value)} style={{width:"100%",padding:"6px 8px",border:`1px solid ${C.border}`,borderRadius:4,fontFamily:"Georgia,serif",fontSize:11,background:C.bg,outline:"none"}}>
+                {JF_NIVEIS.map(n=><option key={n.v} value={n.v}>{n.l}</option>)}
+              </select>
+            </div>
+
+            <div style={{padding:"10px 14px",borderBottom:`1px solid ${C.border}`}}>
+              <div style={{fontSize:9,fontFamily:"monospace",color:C.textTer,textTransform:"uppercase",letterSpacing:".07em",marginBottom:4}}>Título (.docx)</div>
+              <input value={titulo} onChange={e=>setTitulo(e.target.value)} placeholder={tipo.label} style={{width:"100%",padding:"6px 8px",border:`1px solid ${C.border}`,borderRadius:4,fontFamily:"Georgia,serif",fontSize:12,background:C.bg,outline:"none",boxSizing:"border-box"}}/>
+            </div>
+
+            <div style={{flex:1,overflowY:"auto",padding:"10px 14px"}}>
+              <div style={{fontSize:9,fontFamily:"monospace",color:C.textTer,textTransform:"uppercase",letterSpacing:".07em",marginBottom:6}}>Ações rápidas</div>
+              {tipo.acoes.map((a,i)=>(
+                <button key={i} onClick={()=>enviar(a.p)}
+                  style={{display:"flex",alignItems:"flex-start",gap:7,width:"100%",padding:"7px 9px",marginBottom:4,border:`1px solid ${C.border}`,borderRadius:4,cursor:"pointer",textAlign:"left",background:"transparent",color:C.textSec,fontSize:11,fontFamily:"Georgia,serif",lineHeight:1.4,transition:"all .12s"}}
+                  onMouseOver={e=>{e.currentTarget.style.background=`${tipo.cor}10`;e.currentTarget.style.borderColor=`${tipo.cor}40`;e.currentTarget.style.color=C.textPri;}}
+                  onMouseOut={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSec;}}>
+                  <span style={{flexShrink:0,marginTop:1}}>{a.ic}</span><span>{a.l}</span>
+                </button>
+              ))}
+            </div>
+
+            <div style={{padding:"10px 14px",background:"#f7f3ec",borderTop:`1px solid ${C.border}`}}>
+              <div style={{fontSize:10,color:C.textSec,lineHeight:1.5}}>{tipo.desc}</div>
+            </div>
+          </div>
+        )}
+
+        {/* CHAT */}
+        <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+
+          {/* Upload panel */}
+          {showUpload&&(
+            <div style={{background:C.white,borderBottom:`1px solid ${C.border}`,padding:"14px 20px",flexShrink:0}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}>
+                <span style={{fontSize:12,fontWeight:500,color:C.textPri}}>Carregar documento regulatório para análise</span>
+                <button onClick={()=>setShowUpload(false)} style={{background:"none",border:"none",cursor:"pointer",fontSize:16,color:C.textTer}}>×</button>
+              </div>
+              <div onDrop={e=>{e.preventDefault();handleFile(e.dataTransfer.files[0]);}} onDragOver={e=>e.preventDefault()}
+                onClick={()=>fileInputRef.current?.click()}
+                style={{border:`2px dashed ${C.border}`,borderRadius:8,padding:"18px",textAlign:"center",cursor:"pointer",background:"#faf8f4",transition:"all .15s"}}
+                onMouseOver={e=>{e.currentTarget.style.borderColor=tipo.cor;}} onMouseOut={e=>{e.currentTarget.style.borderColor=C.border;}}>
+                {uploadLoading?<div style={{fontSize:13,color:C.textSec}}>⏳ Lendo arquivo...</div>:<><div style={{fontSize:26,marginBottom:6}}>📄</div><div style={{fontSize:12,color:C.textSec}}>Arraste PDF ou DOCX · ou clique · máx. 30MB</div><div style={{fontSize:11,color:C.textTer,marginTop:3}}>Contrato bancário · PAS CVM · Prospecto · Escritura · Norma regulatória</div></>}
+              </div>
+              <input ref={fileInputRef} type="file" accept=".pdf,.docx,.doc" style={{display:"none"}} onChange={e=>handleFile(e.target.files[0])}/>
+              {uploadErr&&<div style={{marginTop:8,fontSize:11,color:"#991b1b",padding:"6px 10px",background:"#fef2f2",borderRadius:4,fontFamily:"monospace"}}>❌ {uploadErr}</div>}
+            </div>
+          )}
+
+          {/* Chip doc carregado */}
+          {!showUpload&&doc&&(
+            <div style={{background:C.white,borderBottom:`1px solid ${C.border}`,padding:"7px 18px",display:"flex",gap:8,alignItems:"center",flexShrink:0}}>
+              <span style={{display:"inline-flex",alignItems:"center",gap:6,padding:"3px 10px",background:`${tipo.cor}12`,border:`1px solid ${tipo.cor}30`,borderRadius:12,fontSize:11,fontFamily:"monospace",color:tipo.cor}}>
+                {doc.tipo==="pdf"?"📕":"📝"} {doc.nome.slice(0,30)} · {tipo.icon} {tipo.label}
+                <button onClick={()=>setDoc(null)} style={{background:"none",border:"none",cursor:"pointer",color:"inherit",fontSize:12,padding:"0 0 0 4px"}}>×</button>
+              </span>
+            </div>
+          )}
+
+          {/* Messages */}
+          <div style={{flex:1,overflowY:"auto",padding:"20px 24px"}}>
+            {msgs.length===0&&(
+              <div style={{maxWidth:580,margin:"36px auto 0",textAlign:"center"}}>
+                <div style={{fontSize:36,marginBottom:10}}>{tipo.icon}</div>
+                <div style={{fontSize:18,fontWeight:700,color:C.textPri,marginBottom:6}}>JurFinanceiro</div>
+                <div style={{fontSize:13,color:C.textSec,lineHeight:1.7,marginBottom:6}}>{tipo.label}</div>
+                <div style={{fontSize:11,color:C.textTer,fontFamily:"monospace",marginBottom:20}}>{tipo.desc}</div>
+                <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,textAlign:"left",marginBottom:16}}>
+                  {tipo.acoes.slice(0,4).map((a,i)=>(
+                    <button key={i} onClick={()=>enviar(a.p)}
+                      style={{padding:"10px 12px",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer",background:C.white,textAlign:"left",fontSize:12,color:C.textSec,fontFamily:"Georgia,serif",lineHeight:1.4,transition:"all .12s"}}
+                      onMouseOver={e=>{e.currentTarget.style.borderColor=tipo.cor;e.currentTarget.style.color=C.textPri;}}
+                      onMouseOut={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSec;}}>
+                      {a.ic} {a.l}
+                    </button>
+                  ))}
+                </div>
+                <div style={{marginTop:14,padding:"10px 16px",background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:6,fontSize:11,color:"#1e40af",textAlign:"left"}}>
+                  💡 <strong>Dica:</strong> Use 📎 para carregar um contrato bancário, escritura, prospecto ou PAS CVM — a IA analisa e elabora a peça correspondente diretamente.
+                </div>
+              </div>
+            )}
+            {msgs.map((m,i)=>(
+              <div key={i} style={{marginBottom:20,display:"flex",gap:12,justifyContent:m.role==="user"?"flex-end":"flex-start"}}>
+                {m.role==="assistant"&&<div style={{width:28,height:28,background:tipo.cor,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0,marginTop:2}}>{tipo.icon}</div>}
+                <div style={{maxWidth:"82%",minWidth:0}}>
+                  {m.docNome&&<div style={{display:"flex",gap:6,marginBottom:4,justifyContent:"flex-end"}}><span style={{fontSize:10,fontFamily:"monospace",padding:"2px 8px",background:`${tipo.cor}15`,border:`1px solid ${tipo.cor}30`,borderRadius:10,color:tipo.cor}}>📄 {m.docNome?.slice(0,22)}</span></div>}
+                  <div style={{padding:"12px 16px",borderRadius:m.role==="user"?"16px 4px 16px 16px":"4px 16px 16px 16px",background:m.role==="user"?C.nav:C.white,color:m.role==="user"?"white":C.textPri,border:m.role==="assistant"?`1px solid ${C.border}`:"none",fontSize:13,lineHeight:1.75}}>
+                    {m.role==="assistant"?<JFRichText content={m.content}/>:<span style={{fontFamily:"Georgia,serif",fontSize:13}}>{typeof m.content==="string"?m.content:"[documento enviado para análise]"}</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {loading&&(
+              <div style={{display:"flex",gap:12,marginBottom:20}}>
+                <div style={{width:28,height:28,background:tipo.cor,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,flexShrink:0}}>{tipo.icon}</div>
+                <div style={{padding:"12px 16px",background:C.white,border:`1px solid ${C.border}`,borderRadius:"4px 16px 16px 16px",display:"flex",gap:6,alignItems:"center"}}>
+                  {[0,1,2].map(j=><div key={j} style={{width:7,height:7,borderRadius:"50%",background:tipo.cor,opacity:.5,animation:`bounce 1.2s ease-in-out ${j*.2}s infinite`}}/>)}
+                </div>
+              </div>
+            )}
+            <div ref={bottomRef}/>
+          </div>
+
+          {/* Input */}
+          <div style={{borderTop:`1px solid ${C.border}`,background:C.white,padding:"12px 18px"}}>
+            <div style={{display:"flex",gap:8,alignItems:"flex-end",maxWidth:900,margin:"0 auto"}}>
+              <button onClick={()=>setShowUpload(v=>!v)} title="Carregar PDF ou DOCX regulatório"
+                style={{width:40,height:40,display:"flex",alignItems:"center",justifyContent:"center",border:`1px solid ${doc?tipo.cor:C.border}`,borderRadius:8,cursor:"pointer",background:doc?`${tipo.cor}12`:C.bg,color:doc?tipo.cor:C.textTer,fontSize:18,flexShrink:0,transition:"all .15s"}}>
+                📎
+              </button>
+              <textarea ref={taRef} value={input} onChange={e=>setInput(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();enviar();}}}
+                placeholder={doc?"Instrução adicional para a análise do documento...":"Descreva a operação, questão regulatória ou caso... (Enter para enviar)"}
+                rows={1}
+                style={{flex:1,padding:"10px 14px",border:`1px solid ${C.border}`,borderRadius:8,fontFamily:"Georgia,serif",fontSize:13,resize:"none",outline:"none",lineHeight:1.6,overflow:"hidden",background:C.bg,color:C.textPri,transition:"border-color .15s"}}
+                onFocus={e=>e.target.style.borderColor=tipo.cor}
+                onBlur={e=>e.target.style.borderColor=C.border}/>
+              <button onClick={()=>enviar()} disabled={loading||(!input.trim()&&!doc)}
+                style={{padding:"10px 18px",background:loading||(!input.trim()&&!doc)?"#ccc":tipo.cor,color:"white",border:"none",borderRadius:8,cursor:loading||(!input.trim()&&!doc)?"not-allowed":"pointer",fontSize:16,transition:"background .2s",flexShrink:0,height:40}}>
+                ↑
+              </button>
+            </div>
+            <div style={{fontSize:10,color:C.textTer,textAlign:"center",marginTop:5,fontFamily:"monospace"}}>
+              📎 PDF/DOCX regulatório · 📚 Normativas ({JF_NORMATIVAS.length}) · Enter para enviar · ⬇ .docx
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {showNorm&&<JFModalNormativas onClose={()=>setShowNorm(false)} onUsar={usarNormativa}/>}
+    </div>
+  );
+}
+
 // ── APP SHELL ─────────────────────────────────────────────────────
 function App(){
   const[hasKey,setHasKey]=useState(!!getKey());
@@ -2779,6 +3285,7 @@ function App(){
     if(activeId==='jur')return <JurTool/>;
     if(activeId==='docx')return <JurDocxEngine/>;
     if(activeId==='peca')return <JurPecaV2/>;
+    if(activeId==='fin')return <JurFinanceiro/>;
     const tool=TOOLS[activeId];
     if(!tool)return null;
     return <ChatTool key={activeId} tool={tool}/>;
