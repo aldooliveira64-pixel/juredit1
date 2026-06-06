@@ -1207,43 +1207,15 @@ function BibTool(){
 function JurTool(){
   const[busca,setBusca]=useState('');const[tribunal,setTribunal]=useState('Todos');const[iaResult,setIaResult]=useState('');const[loading,setLoading]=useState(false);const[err,setErr]=useState('');const[modo,setModo]=useState('sumulas');
   const SUMULAS=[
-    // STF — Súmulas Vinculantes
-    {id:'stf-sv-3',tribunal:'STF',tipo:'Súmula Vinculante',numero:'3',tema:'Contraditório — TCU',ementa:'Nos processos perante o Tribunal de Contas da União asseguram-se o contraditório e a ampla defesa quando da decisão puder resultar anulação ou revogação de ato administrativo que beneficie o interessado, excetuada a apreciação da legalidade do ato de concessão inicial de aposentadoria, reforma e pensão.',area:'Direito Administrativo',tags:['TCU','contraditório','aposentadoria']},
-    {id:'stf-sv-8',tribunal:'STF',tipo:'Súmula Vinculante',numero:'8',tema:'Prescrição e decadência tributárias',ementa:'São inconstitucionais o parágrafo único do artigo 5º do Decreto-lei n. 1.569/1977 e os artigos 45 e 46 da Lei n. 8.212/1991, que tratam de prescrição e decadência de crédito tributário.',area:'Direito Tributário',tags:['prescrição','decadência','crédito tributário']},
-    {id:'stf-11',tribunal:'STF',tipo:'Súmula Vinculante',numero:'11',tema:'Uso de algemas',ementa:'Só é lícito o uso de algemas em casos de resistência e de fundado receio de fuga ou de perigo à integridade física própria ou alheia, por parte do preso ou de terceiros, justificada a excepcionalidade por escrito, sob pena de responsabilidade disciplinar, civil e penal do agente ou da autoridade e de nulidade da prisão ou do ato processual a que se refere.',area:'Direito Penal',tags:['algemas','prisão','nulidade']},
-    {id:'stf-sv-13',tribunal:'STF',tipo:'Súmula Vinculante',numero:'13',tema:'Nepotismo',ementa:'A nomeação de cônjuge, companheiro ou parente em linha reta, colateral ou por afinidade, até o terceiro grau, inclusive, da autoridade nomeante ou de servidor da mesma pessoa jurídica investido em cargo de direção, chefia ou assessoramento, para o exercício de cargo em comissão ou de confiança ou, ainda, de função gratificada na administração pública direta e indireta em qualquer dos Poderes da União, dos Estados, do Distrito Federal e dos Municípios, compreendido o ajuste mediante designações recíprocas, viola a Constituição Federal.',area:'Direito Administrativo',tags:['nepotismo','cargo comissão']},
-    {id:'stf-sv-33',tribunal:'STF',tipo:'Súmula Vinculante',numero:'33',tema:'Aposentadoria especial — servidor público',ementa:'Aplicam-se ao servidor público, no que couber, as regras do regime geral da previdência social sobre aposentadoria especial de que trata o artigo 40, § 4º, inciso III da Constituição Federal, até a edição de lei complementar específica.',area:'Direito Previdenciário',tags:['aposentadoria especial','servidor']},
-    {id:'stf-37',tribunal:'STF',tipo:'Súmula Vinculante',numero:'37',tema:'Equiparação de vencimentos',ementa:'Não cabe ao Poder Judiciário, que não tem função legislativa, aumentar vencimentos de servidores públicos sob o fundamento de isonomia.',area:'Direito Administrativo',tags:['servidor','isonomia','vencimentos']},
-    {id:'stf-54',tribunal:'STF',tipo:'Súmula Vinculante',numero:'54',tema:'ICMS — imunidade livros',ementa:'A imunidade tributária constante do art. 150, VI, d, da CF/88 aplica-se à importação de livros, jornais, periódicos e o papel destinado a sua impressão.',area:'Direito Tributário',tags:['ICMS','imunidade','tributário']},
-    // STJ — Processo Civil e Penal
-    {id:'stj-7',tribunal:'STJ',tipo:'Súmula',numero:'7',tema:'Reexame de provas',ementa:'A pretensão de simples reexame de prova não enseja recurso especial.',area:'Processo Civil',tags:['REsp','prova','admissibilidade']},
-    {id:'stj-57',tribunal:'STJ',tipo:'Súmula',numero:'57',tema:'INSS — decadência',ementa:'O prazo decadencial para que o INSS reveja seus atos é de dez anos, contados da data do ato, nos termos do art. 103-A da Lei n. 8.213/1991.',area:'Direito Previdenciário',tags:['INSS','decadência','benefício']},
-    {id:'stj-83',tribunal:'STJ',tipo:'Súmula',numero:'83',tema:'Divergência jurisprudencial',ementa:'Não se conhece do recurso especial pela divergência, quando a orientação do Tribunal se firmou no mesmo sentido da decisão recorrida.',area:'Processo Civil',tags:['REsp','divergência']},
-    {id:'stj-149',tribunal:'STJ',tipo:'Súmula',numero:'149',tema:'Danos morais — prova',ementa:'A prova do dano moral não depende de laudo pericial, mas pode ser demonstrada por outros meios.',area:'Direito Civil',tags:['dano moral','prova']},
-    {id:'stj-254',tribunal:'STJ',tipo:'Súmula',numero:'254',tema:'Juros de mora — benefício previdenciário',ementa:'Os juros moratórios incidem sobre as prestações em atraso.',area:'Direito Previdenciário',tags:['juros','mora','previdência']},
-    {id:'stj-297',tribunal:'STJ',tipo:'Súmula',numero:'297',tema:'CDC — contratos bancários',ementa:'O Código de Defesa do Consumidor é aplicável às instituições financeiras.',area:'Direito Bancário',tags:['CDC','banco','consumidor']},
-    {id:'stj-308',tribunal:'STJ',tipo:'Súmula',numero:'308',tema:'Hipoteca — promissário comprador',ementa:'A hipoteca firmada entre a construtora e o agente financeiro, anterior ou posterior à celebração da promessa de compra e venda, não tem eficácia perante os adquirentes do imóvel.',area:'Direito Civil',tags:['hipoteca','imóvel','construtora']},
-    {id:'stj-331',tribunal:'STJ',tipo:'Súmula',numero:'331',tema:'Terceirização — responsabilidade subsidiária',ementa:'A inadimplência da empresa prestadora de serviços, quanto às obrigações trabalhistas, transfere-se ao tomador de serviços que tenha participado da relação processual e conste também do título executivo judicial.',area:'Direito do Trabalho',tags:['terceirização','responsabilidade subsidiária']},
-    {id:'stj-336',tribunal:'STJ',tipo:'Súmula',numero:'336',tema:'Pensão por morte — alimentos renunciados',ementa:'A mulher que renunciou aos alimentos na separação judicial tem direito à pensão previdenciária por morte do ex-marido, comprovada a necessidade econômica superveniente.',area:'Direito Previdenciário',tags:['pensão por morte','alimentos','separação']},
-    {id:'stj-381',tribunal:'STJ',tipo:'Súmula',numero:'381',tema:'Contratos bancários — cláusulas abusivas de ofício',ementa:'Nos contratos bancários, é vedado ao julgador conhecer, de ofício, da abusividade das cláusulas.',area:'Direito Bancário',tags:['contrato bancário','cláusula abusiva','CDC']},
-    {id:'stj-382',tribunal:'STJ',tipo:'Súmula',numero:'382',tema:'Juros remuneratórios — abusividade',ementa:'A estipulação de juros remuneratórios superiores a 12% ao ano, por si só, não indica abusividade.',area:'Direito Bancário',tags:['juros','abusividade','contrato bancário']},
-    {id:'stj-412',tribunal:'STJ',tipo:'Súmula',numero:'412',tema:'Ação rescisória — prazo',ementa:'A ação rescisória não está sujeita ao exame de admissibilidade do recurso da decisão rescindenda.',area:'Processo Civil',tags:['rescisória','prazo']},
-    {id:'stj-436',tribunal:'STJ',tipo:'Súmula',numero:'436',tema:'Declaração de débitos — constituição do crédito',ementa:'A entrega de declaração pelo contribuinte reconhecendo débito fiscal constitui o crédito tributário, dispensada qualquer outra providência por parte do fisco.',area:'Direito Tributário',tags:['declaração','crédito tributário','débito fiscal']},
-    {id:'stj-479',tribunal:'STJ',tipo:'Súmula',numero:'479',tema:'Fraude bancária — responsabilidade objetiva',ementa:'As instituições financeiras respondem objetivamente pelos danos gerados por fortuito interno relativo a fraudes e delitos praticados por terceiros no âmbito de operações bancárias.',area:'Direito Bancário',tags:['responsabilidade objetiva','fraude','banco']},
-    {id:'stj-530',tribunal:'STJ',tipo:'Súmula',numero:'530',tema:'Juros — taxa média BACEN',ementa:'Nos contratos bancários, na impossibilidade de comprovar a taxa de juros efetivamente contratada, prevalece a taxa média de mercado divulgada pelo Bacen, salvo se a taxa cobrada for mais vantajosa para o devedor.',area:'Direito Bancário',tags:['juros','taxa média','BACEN']},
-    {id:'stj-539',tribunal:'STJ',tipo:'Súmula',numero:'539',tema:'Cumulação de danos',ementa:'É permitida a cumulação das indenizações de dano estético e dano moral.',area:'Direito Civil',tags:['dano moral','dano estético','cumulação']},
-    {id:'stj-550',tribunal:'STJ',tipo:'Súmula',numero:'550',tema:'Cartão de crédito — envio não solicitado',ementa:'A utilização do cartão de crédito não autoriza o envio de cartão de crédito sem prévia e expressa solicitação do titular, sendo prática vedada pelo CDC.',area:'Direito Bancário',tags:['cartão de crédito','envio não solicitado','CDC']},
-    {id:'stj-555',tribunal:'STJ',tipo:'Súmula',numero:'555',tema:'ICMS — decadência quinquenal',ementa:'Quando não houver declaração do débito, o prazo decadencial quinquenal para o Fisco constituir o crédito tributário conta-se exclusivamente na forma do art. 173, I, do CTN.',area:'Direito Tributário',tags:['decadência','CTN','ICMS']},
-    {id:'stj-565',tribunal:'STJ',tipo:'Súmula',numero:'565',tema:'Tarifas bancárias — TAC e TEC',ementa:'A pactuação das tarifas de abertura de crédito (TAC) e de emissão de carnê (TEC) é válida apenas nos contratos bancários celebrados até o início da vigência da Resolução-CMN n. 3.518/2007.',area:'Direito Bancário',tags:['TAC','TEC','tarifas','BACEN']},
-    {id:'stj-603',tribunal:'STJ',tipo:'Súmula',numero:'603',tema:'Plano de saúde — internação ilimitada',ementa:'É abusiva a cláusula contratual de plano de saúde que limita no tempo a internação hospitalar do segurado.',area:'Direito do Consumidor',tags:['plano de saúde','cláusula abusiva','internação']},
-    {id:'stj-604',tribunal:'STJ',tipo:'Súmula',numero:'604',tema:'Seguro prestamista — validade',ementa:'O seguro prestamista vinculado ao contrato de mútuo bancário pode ser contratado pela instituição financeira credora, sem que isso implique abusividade.',area:'Direito Bancário',tags:['seguro prestamista','mútuo bancário','CDC']},
-    {id:'stj-613',tribunal:'STJ',tipo:'Súmula',numero:'613',tema:'Fato consumado — vedação ambiental',ementa:'Não se admite a aplicação da teoria do fato consumado em tema de Direito Ambiental.',area:'Direito Ambiental',tags:['fato consumado','reserva legal','meio ambiente']},
-    {id:'stj-618',tribunal:'STJ',tipo:'Súmula',numero:'618',tema:'Dano ambiental — ônus da prova',ementa:'A inversão do ônus da prova aplica-se às ações de degradação ambiental.',area:'Direito Ambiental',tags:['dano ambiental','responsabilidade','ônus da prova']},
-    // TST
-    {id:'tst-277',tribunal:'TST',tipo:'Súmula',numero:'277',tema:'CCT/ACT — ultratividade',ementa:'As cláusulas normativas dos acordos coletivos ou convenções coletivas integram os contratos individuais de trabalho e somente poderão ser modificadas ou suprimidas mediante negociação coletiva de trabalho.',area:'Direito do Trabalho',tags:['CCT','ACT','ultratividade','negociação coletiva']},
-    {id:'tst-333',tribunal:'TST',tipo:'Súmula',numero:'333',tema:'Recurso de revista',ementa:'Não ensejam recurso de revista decisões superadas por iterativa, notória e atual jurisprudência do Tribunal Superior do Trabalho.',area:'Direito do Trabalho',tags:['recurso de revista','TST']},
-    {id:'tst-437',tribunal:'TST',tipo:'Súmula',numero:'437',tema:'Intervalo intrajornada',ementa:'A não-concessão ou a concessão parcial do intervalo intrajornada mínimo implica o pagamento total do período correspondente, com acréscimo de, no mínimo, 50% sobre o valor da remuneração da hora normal.',area:'Direito do Trabalho',tags:['intervalo','jornada','hora extra']},
-    {id:'tst-443',tribunal:'TST',tipo:'Súmula',numero:'443',tema:'Dispensa discriminatória — presunção',ementa:'Presume-se discriminatória a despedida de empregado portador do vírus HIV ou de outra doença grave que suscite estigma ou preconceito. Inválido o ato, o empregado tem direito à reintegração no emprego ou, a critério do empregado, à percepção em dobro da remuneração do período de afastamento.',area:'Direito do Trabalho',tags:['dispensa discriminatória','HIV','doença grave','reintegração']},
+    {id:'stj-297',tribunal:'STJ',tipo:'Súmula',numero:'297',tema:'CDC — contratos bancários',ementa:'O Código de Defesa do Consumidor é aplicável às instituições financeiras.',area:'Direito Bancário'},
+    {id:'stj-381',tribunal:'STJ',tipo:'Súmula',numero:'381',tema:'Contratos bancários — cláusulas abusivas',ementa:'Nos contratos bancários, é vedado ao julgador conhecer, de ofício, da abusividade das cláusulas.',area:'Direito Bancário'},
+    {id:'stj-382',tribunal:'STJ',tipo:'Súmula',numero:'382',tema:'Juros remuneratórios',ementa:'A estipulação de juros remuneratórios superiores a 12% ao ano, por si só, não indica abusividade.',area:'Direito Bancário'},
+    {id:'stj-479',tribunal:'STJ',tipo:'Súmula',numero:'479',tema:'Fraude bancária — responsabilidade',ementa:'As instituições financeiras respondem objetivamente pelos danos gerados por fortuito interno relativo a fraudes e delitos praticados por terceiros no âmbito de operações bancárias.',area:'Direito Bancário'},
+    {id:'stj-7',tribunal:'STJ',tipo:'Súmula',numero:'7',tema:'Reexame de provas',ementa:'A pretensão de simples reexame de prova não enseja recurso especial.',area:'Processo Civil'},
+    {id:'stj-83',tribunal:'STJ',tipo:'Súmula',numero:'83',tema:'Divergência jurisprudencial',ementa:'Não se conhece do recurso especial pela divergência, quando a orientação do Tribunal se firmou no mesmo sentido da decisão recorrida.',area:'Processo Civil'},
+    {id:'stj-530',tribunal:'STJ',tipo:'Súmula',numero:'530',tema:'Taxa média BACEN',ementa:'Nos contratos bancários, na impossibilidade de comprovar a taxa de juros efetivamente contratada, prevalece a taxa média de mercado divulgada pelo Bacen.',area:'Direito Bancário'},
+    {id:'stf-11',tribunal:'STF',tipo:'Súmula Vinculante',numero:'11',tema:'Uso de algemas',ementa:'Só é lícito o uso de algemas em casos de resistência e de fundado receio de fuga ou de perigo à integridade física.',area:'Direito Penal'},
+    {id:'tst-437',tribunal:'TST',tipo:'Súmula',numero:'437',tema:'Intervalo intrajornada',ementa:'A não-concessão ou a concessão parcial do intervalo intrajornada mínimo implica o pagamento total do período correspondente, com acréscimo de, no mínimo, 50%.',area:'Direito do Trabalho'},
   ];
   const resultados=SUMULAS.filter(r=>{const q=busca.toLowerCase();const mT=!busca||[r.tema,r.ementa,r.numero].some(s=>s.toLowerCase().includes(q));const mTr=tribunal==='Todos'||r.tribunal===tribunal;return mT&&mTr;});
   const buscarIA=async()=>{
@@ -1260,7 +1232,7 @@ function JurTool(){
   const corTrib={STF:'#7c3aed',STJ:'#0369a1',TST:'#065f46'};
   return(
     <div style={{height:'100%',display:'flex',flexDirection:'column',background:C.bg,overflow:'hidden'}}>
-      <div style={{background:C.nav,padding:'0 20px',display:'flex',alignItems:'center',gap:12,height:48,flexShrink:0}}><span style={{color:C.gold,fontFamily:'monospace',fontWeight:700,fontSize:13,letterSpacing:'.1em'}}>JURJURISPRUDÊNCIA</span><span style={{background:`${C.gold}25`,border:`1px solid ${C.gold}55`,color:C.gold,fontSize:9,padding:'2px 8px',borderRadius:2,fontFamily:'monospace'}}>v2.1 · 35 súmulas · STF · STJ · TST</span></div>
+      <div style={{background:C.nav,padding:'0 20px',display:'flex',alignItems:'center',gap:12,height:48,flexShrink:0}}><span style={{color:C.gold,fontFamily:'monospace',fontWeight:700,fontSize:13,letterSpacing:'.1em'}}>JURJURISPRUDÊNCIA</span><span style={{background:`${C.gold}25`,border:`1px solid ${C.gold}55`,color:C.gold,fontSize:9,padding:'2px 8px',borderRadius:2,fontFamily:'monospace'}}>v2 · STF · STJ · TST · Súmulas</span></div>
       <div style={{flex:1,overflowY:'auto',padding:'20px'}}>
         <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:'14px 18px',marginBottom:14}}>
           <div style={{display:'flex',gap:10,marginBottom:10}}>
@@ -1993,9 +1965,15 @@ function JurObraV2() {
     try {
       const apiMsgs = novasMsgs.map(m => ({ role:m.role, content: m.docContent || m.content }));
       const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST", headers:{"Content-Type":"application/json"},
+        method:"POST", headers:{
+          "Content-Type":"application/json",
+          "x-api-key": getKey(),
+          "anthropic-version": "2023-06-01",
+          "anthropic-beta": "web-search-2025-03-05",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
         body: JSON.stringify({
-          model:"claude-sonnet-4-20250514", max_tokens:1000,
+          model:"claude-sonnet-4-20250514", max_tokens:8000,
           system: buildSystem(tipo, nivel, projeto, jurCache, bibCache, !!doc, doc?.modoKey),
           messages: apiMsgs,
           tools: [{ type:"web_search_20250305", name:"web_search" }],
@@ -2600,18 +2578,26 @@ function buildSystemPeca(tipoKey, subtipo, area, nivel, temDoc) {
 
 Tipo: ${tipo.label} — ${subtipo}
 Área: ${area} | Nível: ${nivel}
-${temDoc ? "MODO ANÁLISE DE DOCUMENTO: ativo — leia o documento antes de qualquer resposta." : ""}
+${temDoc ? "MODO ANÁLISE DE DOCUMENTO: ativo — leia o documento integralmente antes de qualquer resposta." : ""}
+
+DESENVOLVIMENTO DE TESE — OBRIGATÓRIO:
+✓ Toda tese jurídica DEVE ser desenvolvida em pelo menos 3 camadas:
+  CAMADA 1 — BASE NORMATIVA: cite o dispositivo legal exato (artigo, inciso, parágrafo) com redação vigente em 2025
+  CAMADA 2 — FUNDAMENTO DOUTRINÁRIO: cite o entendimento majoritário e dissidente com nota ¹²³ ABNT
+  CAMADA 3 — RESPALDO JURISPRUDENCIAL: cite STF/STJ/TRF (2020–2025) com tribunal, tipo, data e tese
+✓ Cada tese principal exige subteses subsidiárias ("ainda que assim não se entenda...")
+✓ NUNCA afirme apenas a conclusão — demonstre o raciocínio jurídico completo
+✓ Peças processuais: mínimo 20 notas de rodapé. Pareceres: mínimo 15 notas.
+✓ Resposta COMPLETA — não interrompa a peça. Inclua TODOS os capítulos/seções do início ao fim.
 
 REGRAS ABSOLUTAS:
 ✗ NUNCA invente número de processo, relator, data, autor ou obra
-✗ Se não confirmado → "a doutrina majoritária sustenta..." / "o STJ tem decidido que..."
-✓ Jurisprudência somente STF/STJ/TRFs 2020–2025 confirmada
+✗ Se não confirmado → use fórmulas: "o STJ tem reiteradamente decidido que..." / "a doutrina dominante sustenta..."
 ✓ Notas superscript ¹²³ — NUNCA [1] ou (1)
-✓ Formato nota: ¹ Prenome Sobrenome, *Título*, N. ed., Cidade, Editora, ano, p. XX.
-✓ Legislação: versão vigente em 2025
-✓ Ao final: ② NOTAS DE RODAPÉ com todas as notas numeradas
+✓ Formato nota: ¹ Prenome Sobrenome, *Título*, N. ed., Cidade, Editora, ano, p. XX. Jurisprudência: ¹ STJ, REsp XXXXXX/UF, Rel. Min. Nome, j. DD/MM/AAAA.
+✓ Ao final: ② NOTAS DE RODAPÉ com TODAS as notas numeradas em sequência
 
-ESTILO: técnico-jurídico preciso · voz impessoal · termos latinos em *itálico* · conectores clássicos`;
+ESTILO: técnico-jurídico preciso · voz impessoal · termos latinos em *itálico* · conectores clássicos (deveras, dessarte, ex vi, ad argumentandum)`;
 }
 
 
@@ -2696,10 +2682,16 @@ function JurPecaV2() {
 
       const resp = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": getKey(),
+          "anthropic-version": "2023-06-01",
+          "anthropic-beta": "web-search-2025-03-05",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 1000,
+          max_tokens: 8000,
           system: buildSystemPeca(tipoKey, subtipo, area, nivel, docs.length > 0),
           messages: apiMsgs,
           tools: [{ type: "web_search_20250305", name: "web_search" }],
