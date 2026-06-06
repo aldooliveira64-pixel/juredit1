@@ -2623,6 +2623,95 @@ function JurPecaV2() {
   const [uploadLoading, setUploadLoading] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
 
+  // ── Modo estruturado (formulário por seção) ───────────────────────
+  const [formSecao, setFormSecao] = useState(null); // null | "fatos" | "direito" | "pedidos" | "completa"
+  const [formCampos, setFormCampos] = useState({});
+
+  const SECAO_CONFIG = {
+    fatos: {
+      label: "Dos Fatos",
+      ic: "📝",
+      cor: "#2563eb",
+      campos: [
+        { id: "partes",    label: "Partes envolvidas",          ph: "Ex.: João Silva (autor) × Empresa Alfa Ltda. (ré)", multi: false },
+        { id: "resumo",    label: "Resumo da situação",         ph: "Descreva o que aconteceu de forma objetiva e cronológica...", multi: true },
+        { id: "datas",     label: "Datas/cronologia relevante", ph: "Ex.: 10/01/2024 — contrato assinado; 15/03/2024 — inadimplemento", multi: false },
+        { id: "provas",    label: "Provas disponíveis",         ph: "Ex.: contrato, e-mails, notas fiscais, laudos...", multi: false },
+        { id: "prejuizo",  label: "Prejuízo sofrido",           ph: "Ex.: R$ 50.000 em danos materiais + danos morais", multi: false },
+      ],
+      buildPrompt: (c, subtipo, area) =>
+        `Redija a seção DOS FATOS de uma ${subtipo} (${area}) de forma objetiva, cronológica e juridicamente precisa.\n\nPartes: ${c.partes||"—"}\nSituação: ${c.resumo||"—"}\nCronologia: ${c.datas||"—"}\nProvas: ${c.provas||"—"}\nPrejuízo: ${c.prejuizo||"—"}\n\nA seção deve ser clara, impessoal e apta a sustentar os pedidos. Use parágrafos numerados.`,
+    },
+    direito: {
+      label: "Do Direito",
+      ic: "⚖️",
+      cor: "#7c3aed",
+      campos: [
+        { id: "tese",      label: "Tese jurídica principal",    ph: "Ex.: responsabilidade civil contratual — art. 389 CC", multi: false },
+        { id: "leis",      label: "Dispositivos legais",        ph: "Ex.: art. 186, 927 CC; art. 6º CDC; art. 5º, X CF/88", multi: false },
+        { id: "jurisp",    label: "Jurisprudência de apoio",    ph: "Ex.: STJ, REsp 1.234.567 — danos morais em relação de consumo", multi: false },
+        { id: "doutrina",  label: "Doutrina relevante",         ph: "Ex.: Caio Mário — responsabilidade objetiva do fornecedor (opcional)", multi: false },
+        { id: "obs",       label: "Observações adicionais",     ph: "Qualquer ponto específico que deve constar na fundamentação", multi: true },
+      ],
+      buildPrompt: (c, subtipo, area) =>
+        `Elabore a seção DO DIREITO de uma ${subtipo} (${area}) com fundamentos legais, doutrina e jurisprudência atualizada (STF/STJ 2020–2025). Use notas de rodapé numeradas ¹²³.\n\nTese principal: ${c.tese||"—"}\nDispositivos legais: ${c.leis||"—"}\nJurisprudência: ${c.jurisp||"—"}\nDoutrina: ${c.doutrina||"(pesquise doutrina pertinente)"}\nObservações: ${c.obs||"—"}\n\nEstruture em subtópicos (I, II, III…). Mínimo 10 notas de rodapé com referências completas.`,
+    },
+    pedidos: {
+      label: "Dos Pedidos",
+      ic: "📜",
+      cor: "#b45309",
+      campos: [
+        { id: "principal", label: "Pedido principal",           ph: "Ex.: condenação ao pagamento de R$ 50.000 a título de danos materiais", multi: true },
+        { id: "subsidiarios", label: "Pedidos subsidiários",   ph: "Ex.: alternativamente, resolução contratual com devolução de valores", multi: true },
+        { id: "tutela",    label: "Tutela de urgência?",        ph: "Descreva se há pedido liminar/antecipação de tutela e os fundamentos", multi: false },
+        { id: "honorarios",label: "Honorários e custas",        ph: "Ex.: condenação em honorários de 20% (padrão) — deixe em branco para padrão", multi: false },
+      ],
+      buildPrompt: (c, subtipo, area) =>
+        `Elabore a seção DOS PEDIDOS de uma ${subtipo} (${area}), completa, precisa e em ordem lógica (tutela de urgência → pedido principal → subsidiários → honorários → outros).\n\nPedido principal: ${c.principal||"—"}\nPedidos subsidiários: ${c.subsidiarios||"—"}\nTutela de urgência: ${c.tutela||"não há"}\nHonorários/custas: ${c.honorarios||"padrão legal"}\n\nUse numeração clara (i, ii, iii…). Inclua requerimento de produção de provas.`,
+    },
+    completa: {
+      label: "Peça completa",
+      ic: "📋",
+      cor: "#166534",
+      campos: [
+        { id: "partes",    label: "Partes (autor × réu)",       ph: "Ex.: Maria Souza × Banco XYZ S.A.", multi: false },
+        { id: "fatos",     label: "Fatos (resumo)",             ph: "Descreva cronologicamente o que ocorreu...", multi: true },
+        { id: "tese",      label: "Tese jurídica",              ph: "Ex.: negativação indevida — dano moral presumido — CDC art. 6º, VI", multi: false },
+        { id: "leis",      label: "Dispositivos legais",        ph: "Ex.: art. 186, 927 CC; art. 6º, VI CDC", multi: false },
+        { id: "pedido",    label: "Pedidos principais",         ph: "Ex.: indenização por danos morais (R$ 15.000) + exclusão da negativação", multi: true },
+        { id: "tutela",    label: "Tutela de urgência?",        ph: "Descreva se há pedido liminar ou deixe em branco", multi: false },
+        { id: "provas",    label: "Provas disponíveis",         ph: "Ex.: extratos bancários, carta de cobrança, prints", multi: false },
+        { id: "vlr",       label: "Valor da causa",             ph: "Ex.: R$ 15.000,00 (ou deixe em branco para cálculo automático)", multi: false },
+      ],
+      buildPrompt: (c, subtipo, area) =>
+        `Pesquise legislação e jurisprudência STF/STJ (2020–2025) e elabore a PEÇA COMPLETA: ${subtipo} (${area}).\n\nPartes: ${c.partes||"—"}\nFatos: ${c.fatos||"—"}\nTese jurídica: ${c.tese||"—"}\nDispositivos legais: ${c.leis||"—"}\nPedidos: ${c.pedido||"—"}\nTutela de urgência: ${c.tutela||"não há"}\nProvas: ${c.provas||"—"}\nValor da causa: ${c.vlr||"a calcular"}\n\nEstrutura obrigatória: I — DOS FATOS, II — DO DIREITO (mínimo 12 notas ¹²³ com doutrina e jurisprudência), III — DOS PEDIDOS (numerados). Inclua qualificação das partes, endereçamento ao juízo, local/data, e espaço para assinatura. Formato ABNT/forense.`,
+    },
+  };
+
+  // Identifica ações que têm formulário estruturado
+  const SECOES_ESTRUTURADAS = { "Dos Fatos":"fatos", "Do Direito":"direito", "Dos Pedidos":"pedidos", "Peça completa":"completa" };
+
+  const abrirFormSecao = (secaoId) => {
+    setFormSecao(secaoId);
+    setFormCampos({});
+  };
+
+  const fecharForm = () => { setFormSecao(null); setFormCampos({}); };
+
+  const gerarDeForm = () => {
+    const cfg = SECAO_CONFIG[formSecao];
+    if (!cfg) return;
+    const prompt = cfg.buildPrompt(formCampos, subtipo, area);
+    fecharForm();
+    enviar(prompt);
+  };
+
+  const handleAcaoClick = (a) => {
+    const secaoId = SECOES_ESTRUTURADAS[a.l];
+    if (secaoId) { abrirFormSecao(secaoId); }
+    else { enviar(a.p); }
+  };
+
   const fileInputRef = useRef(null);
   const bottomRef    = useRef(null);
   const taRef        = useRef(null);
@@ -2771,21 +2860,27 @@ function JurPecaV2() {
             {/* Ações rápidas */}
             <div style={{ flex:1,overflowY:"auto",padding:"10px 14px" }}>
               <div style={{ fontSize:9,fontFamily:"monospace",color:C.textTer,textTransform:"uppercase",letterSpacing:".07em",marginBottom:8 }}>Ações rápidas</div>
-              {tipo.acoes.map((a,i)=>(
-                <button key={i} onClick={()=>enviar(a.p)} style={{ display:"flex",alignItems:"flex-start",gap:7,width:"100%",padding:"8px 9px",marginBottom:4,border:`1px solid ${C.border}`,borderRadius:4,cursor:"pointer",textAlign:"left",background:"transparent",color:C.textSec,fontSize:12,fontFamily:"Georgia,serif",lineHeight:1.4,transition:"all .12s" }}
+              {tipo.acoes.map((a,i)=>{
+                const temForm = !!SECOES_ESTRUTURADAS[a.l];
+                return (
+                <button key={i} onClick={()=>handleAcaoClick(a)} style={{ display:"flex",alignItems:"flex-start",gap:7,width:"100%",padding:"8px 9px",marginBottom:4,border:`1px solid ${C.border}`,borderRadius:4,cursor:"pointer",textAlign:"left",background:"transparent",color:C.textSec,fontSize:12,fontFamily:"Georgia,serif",lineHeight:1.4,transition:"all .12s" }}
                   onMouseOver={e=>{e.currentTarget.style.background=`${tipo.cor}10`;e.currentTarget.style.borderColor=`${tipo.cor}40`;e.currentTarget.style.color=C.textPri;}}
                   onMouseOut={e=>{e.currentTarget.style.background="transparent";e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSec;}}>
-                  <span style={{flexShrink:0,marginTop:1}}>{a.ic}</span><span>{a.l}</span>
+                  <span style={{flexShrink:0,marginTop:1}}>{a.ic}</span>
+                  <span style={{flex:1}}>{a.l}</span>
+                  {temForm && <span style={{fontSize:9,fontFamily:"monospace",color:"#999",marginTop:2}}>▼</span>}
                 </button>
-              ))}
+              );})}
+              <div style={{marginTop:10,padding:"7px 9px",background:"#f0f0eb",borderRadius:4,fontSize:10,color:"#666",lineHeight:1.5}}>
+                <strong style={{color:"#333"}}>Fatos · Direito · Pedidos · Completa</strong><br/>
+                Abrem formulário de elementos essenciais.
+              </div>
             </div>
           </div>
         )}
 
         {/* CHAT */}
-        <div style={{ flex:1,display:"flex",flexDirection:"column",overflow:"hidden" }}>
-
-          {/* Painel de upload (colapsável) */}
+        <div style={{ flex:1,display:"flex",flexDirection:"column",overflow:"hidden",position:"relative" }}>
           {showUpload && (
             <div style={{ background:C.white,borderBottom:`1px solid ${C.border}`,padding:"14px 20px",flexShrink:0 }}>
               <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10 }}>
@@ -2857,8 +2952,65 @@ function JurPecaV2() {
             </div>
           )}
 
+          {/* ── Formulário estruturado (modo guiado) ─────────────────── */}
+          {formSecao && (() => {
+            const cfg = SECAO_CONFIG[formSecao];
+            return (
+              <div style={{ position:"absolute",top:0,left:0,right:0,bottom:0,background:"rgba(0,0,0,.45)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px" }}>
+                <div style={{ background:"white",borderRadius:10,boxShadow:"0 8px 40px rgba(0,0,0,.25)",width:"100%",maxWidth:600,maxHeight:"85vh",display:"flex",flexDirection:"column",overflow:"hidden" }}>
+                  {/* Header */}
+                  <div style={{ padding:"14px 20px",background:cfg.cor,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0 }}>
+                    <div>
+                      <span style={{ fontSize:16,fontWeight:700,color:"white",fontFamily:"Georgia,serif" }}>{cfg.ic} {cfg.label}</span>
+                      <span style={{ fontSize:11,color:"rgba(255,255,255,.75)",marginLeft:10,fontFamily:"monospace" }}>{subtipo} · {area}</span>
+                    </div>
+                    <button onClick={fecharForm} style={{ background:"rgba(255,255,255,.2)",border:"none",color:"white",cursor:"pointer",width:28,height:28,borderRadius:"50%",fontSize:16,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>×</button>
+                  </div>
+                  {/* Instrução */}
+                  <div style={{ padding:"10px 20px",background:"#fafaf7",borderBottom:"1px solid #e8e4db",flexShrink:0 }}>
+                    <span style={{ fontSize:11,color:"#666",fontFamily:"monospace" }}>Preencha os campos abaixo. Campos em branco são ignorados ou gerados automaticamente pela IA.</span>
+                  </div>
+                  {/* Campos */}
+                  <div style={{ flex:1,overflowY:"auto",padding:"16px 20px" }}>
+                    {cfg.campos.map(campo => (
+                      <div key={campo.id} style={{ marginBottom:14 }}>
+                        <label style={{ display:"block",fontSize:11,fontFamily:"monospace",fontWeight:700,color:"#444",marginBottom:4,textTransform:"uppercase",letterSpacing:".05em" }}>{campo.label}</label>
+                        {campo.multi ? (
+                          <textarea
+                            value={formCampos[campo.id]||""}
+                            onChange={e=>setFormCampos(prev=>({...prev,[campo.id]:e.target.value}))}
+                            placeholder={campo.ph}
+                            rows={3}
+                            style={{ width:"100%",padding:"8px 10px",border:"1px solid #ddd",borderRadius:5,fontFamily:"Georgia,serif",fontSize:12,color:"#111",background:"#fafafa",resize:"vertical",outline:"none",boxSizing:"border-box",lineHeight:1.6 }}
+                            onFocus={e=>e.target.style.borderColor=cfg.cor}
+                            onBlur={e=>e.target.style.borderColor="#ddd"}/>
+                        ) : (
+                          <input
+                            type="text"
+                            value={formCampos[campo.id]||""}
+                            onChange={e=>setFormCampos(prev=>({...prev,[campo.id]:e.target.value}))}
+                            placeholder={campo.ph}
+                            style={{ width:"100%",padding:"8px 10px",border:"1px solid #ddd",borderRadius:5,fontFamily:"Georgia,serif",fontSize:12,color:"#111",background:"#fafafa",outline:"none",boxSizing:"border-box" }}
+                            onFocus={e=>e.target.style.borderColor=cfg.cor}
+                            onBlur={e=>e.target.style.borderColor="#ddd"}/>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {/* Footer */}
+                  <div style={{ padding:"12px 20px",borderTop:"1px solid #e8e4db",display:"flex",gap:10,justifyContent:"flex-end",flexShrink:0,background:"#fafaf7" }}>
+                    <button onClick={fecharForm} style={{ padding:"8px 18px",background:"transparent",border:"1px solid #ccc",borderRadius:5,fontSize:12,cursor:"pointer",fontFamily:"Georgia,serif",color:"#666" }}>Cancelar</button>
+                    <button onClick={gerarDeForm} style={{ padding:"8px 22px",background:cfg.cor,color:"white",border:"none",borderRadius:5,fontSize:12,cursor:"pointer",fontFamily:"Georgia,serif",fontWeight:700,letterSpacing:".03em" }}>
+                      Gerar {cfg.label} →
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Mensagens */}
-          <div style={{ flex:1,overflowY:"auto",padding:"20px 24px" }}>
+          <div style={{ flex:1,overflowY:"auto",padding:"20px 24px",position:"relative" }}>
             {msgs.length === 0 && (
               <div style={{ maxWidth:560,margin:"40px auto 0",textAlign:"center" }}>
                 <div style={{ fontSize:36,marginBottom:10 }}>{tipo.icon}</div>
@@ -2880,13 +3032,16 @@ function JurPecaV2() {
                   ))}
                 </div>
                 <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,textAlign:"left" }}>
-                  {tipo.acoes.slice(0,4).map((a,i)=>(
-                    <button key={i} onClick={()=>enviar(a.p)} style={{ padding:"10px 12px",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer",background:C.white,textAlign:"left",fontSize:12,color:C.textSec,fontFamily:"Georgia,serif",lineHeight:1.4,transition:"all .12s" }}
+                  {tipo.acoes.slice(0,4).map((a,i)=>{
+                    const temForm = !!SECOES_ESTRUTURADAS[a.l];
+                    return (
+                    <button key={i} onClick={()=>handleAcaoClick(a)} style={{ padding:"10px 12px",border:`1px solid ${C.border}`,borderRadius:6,cursor:"pointer",background:C.white,textAlign:"left",fontSize:12,color:C.textSec,fontFamily:"Georgia,serif",lineHeight:1.4,transition:"all .12s",position:"relative" }}
                       onMouseOver={e=>{e.currentTarget.style.borderColor=tipo.cor;e.currentTarget.style.color=C.textPri;}}
                       onMouseOut={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textSec;}}>
                       {a.ic} {a.l}
+                      {temForm && <span style={{display:"block",fontSize:9,fontFamily:"monospace",color:"#aaa",marginTop:3}}>preencher elementos →</span>}
                     </button>
-                  ))}
+                  );})}
                 </div>
               </div>
             )}
