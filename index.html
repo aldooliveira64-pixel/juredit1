@@ -1900,14 +1900,23 @@ function JurObraV2() {
     })();
   }, []);
 
-  // Refrescar bancos a cada 60s (usuário pode ter adicionado no Hub)
+  // Refrescar bancos a cada 60s — só executa quando a aba está visível.
+  // Usa Page Visibility API: se o usuário troca de aba ou minimiza a janela,
+  // document.hidden é true e o tick é ignorado sem custo algum.
   useEffect(() => {
-    const id = setInterval(async () => {
+    const tick = async () => {
+      if (document.hidden) return;          // aba em background: pula
       const [j, b] = await Promise.all([sGet(K_JUR), sGet(K_BIB)]);
       if (j) setJurCache(Array.isArray(j) ? j : []);
       if (b) setBibCache(Array.isArray(b) ? b : []);
-    }, 60000);
-    return () => clearInterval(id);
+    };
+    const id = setInterval(tick, 60000);
+    // Dispara imediatamente ao voltar para a aba (sem esperar 60s)
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', tick);
+    };
   }, []);
 
   const salvarProjeto = async (p) => {
