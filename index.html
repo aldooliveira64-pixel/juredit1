@@ -52,6 +52,54 @@ async function callClaude(body){
   return d;
 }
 
+// ── TRATAMENTO DE ERRO CENTRALIZADO ──────────────────────────────
+// withLoading(fn, setLoading, setErro?)
+// Executa fn async: seta loading=true antes, false no finally.
+// Se lançar exceção, chama setErro (quando fornecido) ou injeta
+// mensagem de erro no chat via setErro como setter de mensagens.
+// Retorna o resultado de fn ou null em caso de erro.
+async function withLoading(fn, setLoading, setErro) {
+  setLoading(true);
+  if (setErro) setErro('');
+  try {
+    return await fn();
+  } catch (e) {
+    if (setErro) setErro(e.message || 'Erro de conexão. Tente novamente.');
+    return null;
+  } finally {
+    setLoading(false);
+  }
+}
+
+// withLoadingMsg(fn, setLoading, setMsgs)
+// Variante para componentes de chat: erros viram mensagem do assistente.
+async function withLoadingMsg(fn, setLoading, setMsgs) {
+  setLoading(true);
+  try {
+    return await fn();
+  } catch (e) {
+    setMsgs(prev => [...prev, { role: 'assistant', content: '❌ ' + (e.message || 'Erro de conexão. Tente novamente.') }]);
+    return null;
+  } finally {
+    setLoading(false);
+  }
+}
+
+// withExport(fn, setExportStatus, timeoutMs?)
+// Para botões de exportação DOCX: idle→loading→done|error→idle.
+async function withExport(fn, setExportStatus, timeoutMs = 5000) {
+  setExportStatus('loading');
+  try {
+    await fn();
+    setExportStatus('done');
+    setTimeout(() => setExportStatus('idle'), timeoutMs);
+  } catch (e) {
+    console.error(e);
+    setExportStatus('error');
+    setTimeout(() => setExportStatus('idle'), 3000);
+  }
+}
+
 // ── DOCX ENGINE v1 (JurDocxEngine_v1) ────────────────────────────
 // Motor unificado — substitui o motor antigo do index
 const CRC_TABLE=(()=>{const t=new Uint32Array(256);for(let i=0;i<256;i++){let c=i;for(let j=0;j<8;j++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[i]=c;}return t;})();
@@ -250,14 +298,12 @@ function KeySetup({onSave}){
   const[k,setK]=useState('');const[err,setErr]=useState('');const[loading,setLoading]=useState(false);
   const test=async()=>{
     if(!k.trim()){setErr('Cole sua chave API.');return;}
-    setLoading(true);setErr('');
-    try{
+    await withLoading(async () => {
       const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':k.trim(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:5,messages:[{role:'user',content:'ok'}]})});
       if(r.status===200||r.status===400){saveKey(k.trim());onSave();}
       else if(r.status===401){setErr('Chave inválida. Verifique em console.anthropic.com');}
       else{saveKey(k.trim());onSave();}
-    }catch(e){setErr('Erro de conexão. Verifique sua internet.');}
-    setLoading(false);
+    }, setLoading, setErr);
   };
   return(
     <div style={{minHeight:'100vh',background:'#12192e',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
@@ -334,24 +380,20 @@ function ChatTool({tool}){
       else apiContent=[{type:'text',text:`DOCUMENTO (${doc.nome}):\n\n${doc.texto.slice(0,30000)}\n\n---\n\n${instrucao}`}];
     }
     const novasMsgs=[...msgs,{role:'user',content:typeof apiContent==='string'?apiContent:prompt,docNome:doc?.nome,_api:apiContent}];
-    setMsgs(novasMsgs);setLoading(true);
-    try{
+    setMsgs(novasMsgs);
+    await withLoadingMsg(async () => {
       const data=await callClaude({model:'claude-sonnet-4-20250514',max_tokens:8000,system:tool.system||'Você é um assistente jurídico especializado.',messages:novasMsgs.map(m=>({role:m.role,content:m._api||m.content}))});
       const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
       setMsgs(prev=>[...prev,{role:'assistant',content:txt||'Sem resposta.'}]);
       setDoc(null);
-    }catch(e){
-      setMsgs(prev=>[...prev,{role:'assistant',content:`❌ Erro: ${e.message}`}]);
-    }
-    setLoading(false);
+    }, setLoading, setMsgs);
   },[msgs,input,loading,tool,doc]);
 
   const exportDocx=async()=>{
     const conteudo=msgs.filter(m=>m.role==='assistant').map(m=>m.content).join('\n\n');
     if(!conteudo.trim())return;
-    setExportSt('loading');
     setTimeout(()=>{
-      try{
+      withExport(async () => {
         const lines=conteudo.split('\n');const noteIdx=lines.findIndex(l=>/^②?\s*NOTAS?\s*DE\s*RODAP/i.test(l.trim()));
         const bodyLines=noteIdx>-1?lines.slice(0,noteIdx):lines;const fm={};
         const paras=[emptyP(),emptyP()];
@@ -373,7 +415,7 @@ function ChatTool({tool}){
         const slug=tool.label.replace(/[^a-zA-Z0-9]/g,'_').slice(0,20);
         docxDownload(paras,tool.label,fnE,slug+'_'+new Date().toISOString().slice(0,10)+'.docx');
         setExportSt('done');setTimeout(()=>setExportSt('idle'),5000);
-      }catch(e){console.error(e);setExportSt('error');setTimeout(()=>setExportSt('idle'),3000);}
+      }, setExportSt, 5000);
     },50);
   };
 
@@ -596,9 +638,8 @@ function HubTool(){
 
   const exportarObra=async()=>{
     if(!capsTexto.trim())return;
-    setExportStatus('loading');
     setTimeout(()=>{
-      try{
+      withExport(async () => {
         const lines=capsTexto.split('\n');const noteIdx=lines.findIndex(l=>/^②?\s*NOTAS?\s*DE\s*RODAP/i.test(l.trim()));
         const bodyLines=noteIdx>-1?lines.slice(0,noteIdx):lines;const fm={};
         const paras=[emptyP(),emptyP(),emptyP()];
@@ -626,7 +667,7 @@ function HubTool(){
         const slug=(proj.nome||'JurObra').replace(/[^a-zA-Z0-9]/g,'_').slice(0,30);
         docxDownload(paras,(proj.nome||'Obra').slice(0,80),fnE,slug+'_COMPLETO_'+new Date().toISOString().slice(0,10)+'.docx');
         setExportStatus('done');setTimeout(()=>setExportStatus('idle'),6000);
-      }catch(e){console.error(e);setExportStatus('error');setTimeout(()=>setExportStatus('idle'),4000);}
+      }, setExportStatus, 6000);
     },50);
   };
 
@@ -1086,8 +1127,9 @@ function BibTool(){
   const[busca,setBusca]=useState('');const[area,setArea]=useState('Todas as áreas');const[periodo,setPeriodo]=useState('Qualquer período');const[tipoRef,setTipoRef]=useState('Qualquer tipo');const[modo,setModo]=useState('classicos');const[loading,setLoading]=useState(false);const[iaResult,setIaResult]=useState('');const[iaErro,setIaErro]=useState('');const[cpTodos,setCpTodos]=useState(false);
   const resultados=CLASSICOS.filter(r=>{const q=busca.toLowerCase();const matchBusca=!busca||[r.titulo,r.autores,...(r.tags||[])].some(s=>s.toLowerCase().includes(q));const matchArea=area==="Todas as áreas"||r.area===area;const matchTipo=tipoRef==="Qualquer tipo"||r.tipo===tipoRef;const matchPer=periodo==="Qualquer período"||(()=>{const a=parseInt(r.ano);if(periodo==="2020–2025")return a>=2020;if(periodo==="2015–2019")return a>=2015&&a<=2019;if(periodo==="2010–2014")return a>=2010&&a<=2014;if(periodo==="Clássicos (até 2009)")return a<=2009;return true;})();return matchBusca&&matchArea&&matchTipo&&matchPer;});
   const buscarIA=useCallback(async()=>{
-    if(!busca.trim())return;setLoading(true);setIaResult('');setIaErro('');
-    try{
+    if(!busca.trim())return;
+    setIaResult('');setIaErro('');
+    await withLoading(async () => {
       const prompt=`Você é especialista em doutrina jurídica. Pesquise e liste referências doutrinárias REAIS sobre:\n\nTema: "${busca}"${area!=="Todas as áreas"?`\nÁrea: ${area}`:""}${periodo!=="Qualquer período"?`\nPeríodo: ${periodo}`:""}.\n\nREGRAS: Somente obras que você tem certeza que existem. Se não tiver certeza da edição/página, omita.\nInclua obras nacionais E estrangeiras. Priorize 2018–2025 (exceto clássicos indispensáveis).\n\nPara cada obra:\n**[SOBRENOME, Prenome. *Título*. N. ed. Cidade: Editora, Ano.]**\nRelevância: [1–2 frases]\nNota de rodapé: [SOBRENOME, *Título abrev.*, ed., cidade, editora, ano, p. XX.]\n\nAo final: "**COMO USAR NO TEXTO:**" com 3 exemplos de citação integrada.\nListe pelo menos 8 obras:`;
       const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':getKey(),'anthropic-version':'2023-06-01','anthropic-beta':'web-search-2025-03-05','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}],tools:[{type:'web_search_20250305',name:'web_search'}]})});
       const data=await resp.json();
@@ -1096,8 +1138,7 @@ function BibTool(){
       if(!txt)throw new Error('Resposta vazia.');
       setIaResult(txt);
       await bibCacheAdd('[IA] '+txt.slice(0,300));
-    }catch(e){setIaErro('❌ Erro: '+(e.message||'verifique a conexão.'));}
-    finally{setLoading(false);}
+    }, setLoading, setIaErro);
   },[busca,area,periodo,tipoRef]);
   const copiarTodos=async()=>{const txt=resultados.map(r=>abntCompleta(r)).join('\n');navigator.clipboard?.writeText(txt);await bibCacheAdd(txt);setCpTodos(true);setTimeout(()=>setCpTodos(false),3000);};
   const C={bg:'#f5f4f1',white:'white',nav:'#12192e',gold:'#c49a2a',border:'#ddd9d0',textPri:'#111',textSec:'#555',textTer:'#999'};
@@ -1195,14 +1236,14 @@ function JurTool(){
   ];
   const resultados=SUMULAS.filter(r=>{const q=busca.toLowerCase();const mT=!busca||[r.tema,r.ementa,r.numero].some(s=>s.toLowerCase().includes(q));const mTr=tribunal==='Todos'||r.tribunal===tribunal;return mT&&mTr;});
   const buscarIA=async()=>{
-    if(!busca.trim())return;setLoading(true);setIaResult('');setErr('');
-    try{
+    if(!busca.trim())return;
+    setIaResult('');setErr('');
+    await withLoading(async () => {
       const data=await callClaude({model:'claude-sonnet-4-20250514',max_tokens:4000,messages:[{role:'user',content:`Pesquise jurisprudência REAL sobre: "${busca}"\nTribunal: ${tribunal==='Todos'?'STF, STJ, TST':tribunal} | Período: 2018–2025\n\nPara cada julgado:\n**[TRIBUNAL] — [Tipo] [número]/[UF]**\nRelator: [Min. Nome] | Data: [DD/MM/AAAA]\nTese: [enunciado em 2 frases]\n📋 CITAÇÃO INLINE: "o [Tribunal], ao julgar o [tipo] [número]/[UF], [Rel. Min. Nome], j. [data], fixou a tese de que [tese]"\nⁿ NOTA: "N [Tribunal], [tipo] [número]/[UF], Rel. Min. Nome, j. data."\n\n✗ NUNCA invente dados. Liste pelo menos 5 julgados.`}]});
       const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
       setIaResult(txt);
       const cached=ls('jura-jur-cache',[]);cached.push({id:Date.now(),texto:txt.slice(0,400)});lsSet('jura-jur-cache',cached);
-    }catch(e){setErr('❌ '+e.message);}
-    setLoading(false);
+    }, setLoading, (msg) => setErr('❌ '+msg));
   };
   const C={bg:'#f5f4f1',white:'white',nav:'#12192e',gold:'#c49a2a',border:'#ddd9d0',textSec:'#555',textTer:'#999',textPri:'#111'};
   const corTrib={STF:'#7c3aed',STJ:'#0369a1',TST:'#065f46'};
@@ -1320,13 +1361,13 @@ function JurDocxEngine(){
 
   const gerar=useCallback(async()=>{
     if(!texto.trim())return;
-    setStatus('loading');setFallback(null);setDiag(null);
-    try{
+    setFallback(null);setDiag(null);
+    await withExport(async () => {
       const proj={nome:nomeLivro.trim(),area:area.trim(),autores:autores.trim(),capsOk:[],capsProx:[]};
       const result=await gerarDocx(texto,nomeLivro||'Documento',proj);
       setDiag(result.diagnostics);if(result.dataUri)setFallback(result);
       setStatus('done');setTimeout(()=>setStatus('idle'),7000);
-    }catch(e){console.error(e);setStatus('error');setTimeout(()=>setStatus('idle'),4000);}
+    }, setStatus, 7000);
   },[texto,nomeLivro,area,autores]);
 
   const C={cream:'#f7f3ec',navy:'#1a2744',gold:'#c49a2a',border:'#d8d1c4',textPri:'#0f0e0c',textSec:'#5a5446',textTer:'#8a8278',green:'#166534',red:'#991b1b'};
@@ -1756,8 +1797,8 @@ function ModalSumario({ projeto, onIntegrar, onClose }) {
   const [step,setStep]=useState("form");
   async function gerar(){
     if(!titulo&&!desc){setErro("Preencha o título ou a descrição.");return;}
-    setErro("");setLoading(true);setOutput("");
-    try{
+    setOutput("");
+    await withLoading(async () => {
       const prompt=`Gere um SUMÁRIO COMPLETO para o tratado jurídico abaixo.
 Título: ${titulo||"Não informado"} | Área: ${projeto.area||"Direito"}
 ${desc?"Descrição: "+desc:""}
@@ -1772,8 +1813,7 @@ Ao final, liste apenas os capítulos:
       const text=data?.content?.[0]?.text||"";
       if(!text)throw new Error("Resposta vazia.");
       setOutput(text);setStep("result");
-    }catch(e){setErro("Erro: "+(e.message||"verifique a conexão."));}
-    setLoading(false);
+    }, setLoading, setErro);
   }
   function integrar(){
     const caps=[];const m=output.match(/```CAPITULOS\s*\n([\s\S]*?)```/i);
@@ -1936,9 +1976,8 @@ function JurObraV2() {
       docNome: doc?.nome,
       docModo: doc ? MODOS_DOC[doc.modoKey]?.label : null,
     }];
-    setMsgs(novasMsgs); setLoading(true);
-
-    try {
+    setMsgs(novasMsgs);
+    await withLoadingMsg(async () => {
       const apiMsgs = novasMsgs.map(m => ({ role:m.role, content: m.docContent || m.content }));
       const resp = await fetch("https://api.anthropic.com/v1/messages", {
         method:"POST", headers:{
@@ -1959,17 +1998,14 @@ function JurObraV2() {
       const txt = (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
       setMsgs(prev => [...prev, { role:"assistant", content: txt || "Sem resposta." }]);
       setDoc(null);
-    } catch(e) {
-      setMsgs(prev => [...prev, { role:"assistant", content:"❌ Erro de conexão. Tente novamente." }]);
-    } finally { setLoading(false); }
+    }, setLoading, setMsgs);
   }, [msgs, input, loading, tipo, nivel, projeto, jurCache, bibCache, doc]);
 
   const handleExport = async () => {
     const conteudo = msgs.filter(m=>m.role==="assistant").map(m=>m.content).join("\n\n");
     if (!conteudo.trim()) return;
-    setExportStatus("loading");
-    try { await gerarDocxObra(conteudo, projeto); setExportStatus("done"); setTimeout(()=>setExportStatus("idle"),6000); }
-    catch(e) { console.error(e); setExportStatus("error"); setTimeout(()=>setExportStatus("idle"),4000); }
+    await withExport(async () => { await gerarDocxObra(conteudo, projeto); setExportStatus("done"); setTimeout(()=>setExportStatus("idle"),6000); }
+    }, setExportStatus, 6000);
   };
 
   const C = { bg:"#f5f4f1", white:"white", nav:"#12192e", gold:"#c49a2a", red:"#8b1a1a", border:"#ddd9d0", textPri:"#111", textSec:"#555", textTer:"#999" };
@@ -2737,9 +2773,7 @@ function JurPecaV2() {
 
     const novasMsgs = [...msgs, { role: "user", content: typeof msgContent === "string" ? msgContent : prompt, docContent: docs.length ? msgContent : null, docNomes: docs.map(d => d.nome) }];
     setMsgs(novasMsgs);
-    setLoading(true);
-
-    try {
+    await withLoadingMsg(async () => {
       const apiMsgs = novasMsgs.map(m => ({
         role: m.role,
         content: m.docContent || m.content,
@@ -2766,17 +2800,14 @@ function JurPecaV2() {
       const txt = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim();
       setMsgs(prev => [...prev, { role: "assistant", content: txt || "Sem resposta." }]);
       setDocs([]); // limpa após envio
-    } catch (e) {
-      setMsgs(prev => [...prev, { role: "assistant", content: "❌ Erro de conexão. Tente novamente." }]);
-    } finally { setLoading(false); }
+    }, setLoading, setMsgs);
   }, [msgs, input, loading, tipoKey, subtipo, area, nivel, docs]);
 
   const handleExport = async () => {
     const conteudo = msgs.filter(m => m.role === "assistant").map(m => m.content).join("\n\n");
     if (!conteudo.trim()) return;
-    setExportStatus("loading");
-    try { await gerarDocxPeca(conteudo, titulo || subtipo, tipo.label + " · " + area); setExportStatus("done"); setTimeout(() => setExportStatus("idle"), 5000); }
-    catch (e) { setExportStatus("error"); setTimeout(() => setExportStatus("idle"), 3000); }
+    await withExport(async () => { await gerarDocxPeca(conteudo, titulo || subtipo, tipo.label + " · " + area); setExportStatus("done"); setTimeout(() => setExportStatus("idle"), 5000); }
+    }, setExportStatus, 5000);
   };
 
   const hasContent = msgs.some(m => m.role === "assistant");
@@ -3391,9 +3422,8 @@ function JurFinanceiro(){
     }
 
     const novasMsgs=[...msgs,{role:"user",content:typeof msgContent==="string"?msgContent:prompt,docContent:doc?msgContent:null,docNome:doc?.nome}];
-    setMsgs(novasMsgs);setLoading(true);
-
-    try{
+    setMsgs(novasMsgs);
+    await withLoadingMsg(async () => {
       const k=getKey();
       if(!k)throw new Error('Chave não configurada.');
       const resp=await fetch("https://api.anthropic.com/v1/messages",{
@@ -3411,17 +3441,14 @@ function JurFinanceiro(){
       const txt=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
       setMsgs(prev=>[...prev,{role:"assistant",content:txt||"Sem resposta."}]);
       setDoc(null);
-    }catch(e){
-      setMsgs(prev=>[...prev,{role:"assistant",content:"❌ "+( e.message||"Erro de conexão. Tente novamente.")}]);
-    }finally{setLoading(false);}
+    }, setLoading, setMsgs);
   },[msgs,input,loading,tipoKey,regulador,nivel,doc]);
 
   const handleExport=async()=>{
     const conteudo=msgs.filter(m=>m.role==="assistant").map(m=>m.content).join("\n\n");
     if(!conteudo.trim())return;
-    setExportStatus("loading");
-    try{await jfExportarDocx(conteudo,titulo||tipo.label);setExportStatus("done");setTimeout(()=>setExportStatus("idle"),5000);}
-    catch(e){console.error(e);setExportStatus("error");setTimeout(()=>setExportStatus("idle"),3000);}
+    await withExport(async () => {await jfExportarDocx(conteudo,titulo||tipo.label);setExportStatus("done");setTimeout(()=>setExportStatus("idle"),5000);}
+    }, setExportStatus, 5000);
   };
 
   const hasContent=msgs.some(m=>m.role==="assistant");
