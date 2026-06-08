@@ -2158,6 +2158,285 @@ function JurObraV2() {
 
 // ── DOCX ENGINE (Fase 0 embutida) ─────────────────────────────────
 
+const TIPOS_PECA = {
+  peticao: {
+    label:"Petição", icon:"⚖️", cor:"#7c3aed",
+    subtipos:["Petição Inicial","Contestação","Recurso de Apelação","Agravo de Instrumento","Embargos de Declaração","Recurso Especial","Recurso Extraordinário","Razões Finais","Memoriais"],
+    modoDoc: "contestacao",
+    acoes:[
+      {ic:"📋",l:"Peça completa",             p:"Pesquise legislação e jurisprudência (STF/STJ 2020–2025) e elabore a peça completa com estrutura processual padrão sobre: "},
+      {ic:"📝",l:"Dos Fatos",                 p:"Redija a seção DOS FATOS de forma objetiva, cronológica e juridicamente precisa para: "},
+      {ic:"⚖️",l:"Do Direito",                p:"Pesquise e elabore a seção DO DIREITO com fundamentos legais, doutrina e jurisprudência (notas ¹²³) sobre: "},
+      {ic:"📜",l:"Dos Pedidos",               p:"Elabore a seção DOS PEDIDOS completa, precisa e em ordem lógica para: "},
+      {ic:"🚨",l:"Tutela de urgência",        p:"Redija requerimento de tutela de urgência (art. 300 CPC): fumus boni iuris, periculum in mora, reversibilidade, para: "},
+      {ic:"🔍",l:"Jurisprudência STF/STJ",    p:"Pesquise e cite jurisprudência STF e STJ 2020–2025 com número, relator, turma e data sobre: "},
+    ]
+  },
+  parecer: {
+    label:"Parecer", icon:"📋", cor:"#0369a1",
+    subtipos:["Parecer Jurídico","Nota Técnica Jurídica","Parecer em Processo Administrativo","Opinião Legal"],
+    modoDoc: "parecer",
+    acoes:[
+      {ic:"📋",l:"Parecer completo",          p:"Elabore parecer completo: EMENTA, I — DA CONSULTA, II — DO RELATÓRIO, III — DA FUNDAMENTAÇÃO, IV — DA CONCLUSÃO, notas ¹²³ ABNT, sobre: "},
+      {ic:"📌",l:"Ementa do parecer",         p:"Elabore a EMENTA do parecer: síntese precisa da consulta e conclusão em até 5 linhas, sobre: "},
+      {ic:"⚖️",l:"Fundamentação completa",    p:"Pesquise doutrina + jurisprudência STF/STJ (2020–2025) e redija a FUNDAMENTAÇÃO JURÍDICA com notas ¹²³, sobre: "},
+      {ic:"✅",l:"Conclusão e matriz de risco",p:"Redija a CONCLUSÃO com análise de risco jurídico (baixo/médio/alto) e alternativas possíveis, sobre: "},
+      {ic:"📚",l:"Doutrina e legislação",     p:"Pesquise e cite doutrina + legislação vigente em 2025 sobre: "},
+      {ic:"🔍",l:"Jurisprudência",            p:"Pesquise jurisprudência STF, STJ e TRFs (2020–2025) com número, relator, turma, data, sobre: "},
+    ]
+  },
+  ementa: {
+    label:"Ementa", icon:"📌", cor:"#065f46",
+    subtipos:["Ementa de Acórdão","Ementa de Decisão Monocrática","Ementa de Parecer"],
+    modoDoc: "julgado",
+    acoes:[
+      {ic:"📌",l:"Ementa completa",           p:"Elabore ementa jurídica completa no padrão STJ/STF: área, ramos, questão, tese, dispositivo, resultado. Sobre: "},
+      {ic:"🏛️",l:"Padrão STF",                p:"Redija ementa no padrão STF com tese de repercussão geral quando aplicável. Sobre: "},
+      {ic:"⚖️",l:"Padrão STJ",                p:"Redija ementa no padrão STJ com súmula/precedente aplicável. Sobre: "},
+      {ic:"🔑",l:"Palavras-chave",             p:"Gere 6 a 10 palavras-chave jurídicas em ordem alfabética para: "},
+      {ic:"✏️",l:"Aprimorar ementa",           p:"Revise e aprimore a seguinte ementa tornando-a mais precisa:\n\n"},
+      {ic:"📊",l:"Tese jurídica fixada",       p:"Redija a tese jurídica fixada no formato de precedente vinculante sobre: "},
+    ]
+  },
+  contrato: {
+    label:"Contrato", icon:"📄", cor:"#92400e",
+    subtipos:["Contrato Civil","Contrato Empresarial","Minuta Contratual","Aditivo","Cláusula Específica","Distrato","Acordo Extrajudicial"],
+    modoDoc: "parecer",
+    acoes:[
+      {ic:"📄",l:"Contrato completo",         p:"Elabore contrato completo com qualificação, objeto, obrigações, prazo, valor, penalidades, rescisão e disposições gerais, sobre: "},
+      {ic:"🎯",l:"Cláusula de objeto",        p:"Redija a CLÁUSULA DE OBJETO com precisão técnica delimitando o que é e não é objeto, para: "},
+      {ic:"⚠️",l:"Penalidades e rescisão",    p:"Redija as cláusulas de PENALIDADES, MULTAS e RESCISÃO com hipóteses de rescisão imotivada e justa causa, para: "},
+      {ic:"🛡️",l:"Garantias e limitações",    p:"Redija as cláusulas de GARANTIAS, RESPONSABILIDADE e LIMITAÇÃO DE DANOS, para: "},
+      {ic:"📋",l:"Disposições gerais",        p:"Redija as DISPOSIÇÕES GERAIS: foro, legislação aplicável, eleição de domicílio, para: "},
+      {ic:"✏️",l:"Revisar cláusula",          p:"Revise e aperfeiçoe a seguinte cláusula eliminando ambiguidades:\n\n"},
+    ]
+  },
+};
+
+const AREAS = ["Direito Processual Civil","Direito Processual Penal","Direito Civil","Direito Penal","Direito Tributário","Direito Administrativo","Direito Constitucional","Direito do Trabalho","Direito Empresarial","Direito do Consumidor","Direito Ambiental","Direito Previdenciário","Direito Digital","Direito Imobiliário","Direito Bancário","Mercado de Capitais"];
+const NIVEIS_P = [{v:"Operadores do Direito (juízes, advogados, promotores)",l:"Operadores do Direito"},{v:"Doutorado e tratados acadêmicos de referência",l:"Doutorado / Tratado"},{v:"Mestrado e pós-graduação stricto sensu",l:"Mestrado / Pós-Grad."},{v:"Graduação avançada",l:"Graduação Avançada"}];
+
+// ── Modos de análise de documento ─────────────────────────────────
+const MODOS_PECA = {
+  contestacao: {
+    label:"Contestação / Defesa",
+    icon:"🛡️",
+    cor:"#7c3aed",
+    desc:"Analisa a Petição Inicial e elabora a defesa completa",
+    instrucao: `Você recebeu uma PETIÇÃO INICIAL para análise estratégica de defesa.
+
+ANÁLISE OBRIGATÓRIA — extraia do documento:
+① Todos os pedidos (principal e subsidiários)
+② Fundamentos jurídicos invocados pelo autor
+③ Fatos alegados (separe o controvertido do incontroverso)
+④ Provas mencionadas ou juntadas
+⑤ Eventuais vícios processuais (ilegitimidade, inépcia, incompetência, prescrição, decadência)
+⑥ Valor da causa e natureza da ação
+
+ELABORE CONTESTAÇÃO COMPLETA:
+
+EXMO(A). SR(A). DR(A). JUIZ(A) DE DIREITO DA ___ VARA CÍVEL DA COMARCA DE ___
+
+[QUALIFICAÇÃO DO(A) RÉSTAURADO(A)], vem, por seu advogado, apresentar CONTESTAÇÃO:
+
+I — DAS PRELIMINARES PROCESSUAIS (se houver vícios identificados)
+[Arguir nulidades, ilegitimidade, incompetência, prescrição/decadência]
+
+II — DA IMPUGNAÇÃO ESPECÍFICA DOS FATOS
+[Rebater ponto a ponto cada fato alegado — art. 341 CPC]
+
+III — DO MÉRITO — DA IMPROCEDÊNCIA DOS PEDIDOS
+[Fundamentos jurídicos, doutrina e jurisprudência STF/STJ 2020–2025]
+[Teses defensivas principais e subsidiárias]
+
+IV — DOS PEDIDOS
+Diante do exposto, requer:
+a) O acolhimento das preliminares arguidas;
+b) Ao final, a total improcedência dos pedidos autorais;
+c) A condenação do autor em custas e honorários (art. 85 CPC).
+
+② NOTAS DE RODAPÉ
+[Mínimo 15 notas em ABNT superscript ¹²³]`
+  },
+  recurso: {
+    label:"Recurso estratégico",
+    icon:"📤",
+    cor:"#c45c1a",
+    desc:"Analisa decisão/acórdão e identifica os recursos cabíveis",
+    instrucao: `Você recebeu uma DECISÃO JUDICIAL ou ACÓRDÃO para análise recursal estratégica.
+
+ANÁLISE OBRIGATÓRIA — identifique:
+① ERROS IN PROCEDENDO (vícios processuais):
+   — Nulidade processual → Embargos de Declaração / Agravo Regimental
+   — Cerceamento de defesa, contraditório, ampla defesa
+   — Decisão ultra/extra/citra petita → Embargos de Declaração
+
+② ERROS IN JUDICANDO (erro de julgamento):
+   — Equívoco na aplicação da lei ou dos fatos → Apelação
+   — Violação de lei federal (art. 105, III, CF) → REsp ao STJ
+   — Violação da Constituição Federal (art. 102, III, CF) → RE ao STF
+   — Divergência com acórdão de outro Tribunal → REsp por divergência
+
+③ PREQUESTIONAMENTO:
+   — Quais dispositivos legais/constitucionais estão prequestionados?
+   — O que precisa ser opostos em Embargos para prequestionar?
+
+PARA CADA RECURSO CABÍVEL, elabore:
+— Fundamento legal do cabimento
+— Prazo e forma de interposição
+— Razões recursais completas com argumentação técnica
+— Jurisprudência favorável STF/STJ (2020–2025)
+— Pedido de provimento
+
+② NOTAS DE RODAPÉ
+[Mínimo 20 notas em ABNT superscript ¹²³]`
+  },
+  parecer: {
+    label:"Análise de consulta",
+    icon:"🔍",
+    cor:"#0369a1",
+    desc:"Analisa o documento de consulta e mapeia todas as possibilidades",
+    instrucao: `Você recebeu um DOCUMENTO DE CONSULTA para elaboração de parecer jurídico.
+
+ANÁLISE OBRIGATÓRIA — extraia:
+① Questão jurídica central submetida à consulta
+② Contexto fático relevante
+③ Documentos e cláusulas mencionados
+④ Partes envolvidas e seus interesses
+⑤ Riscos imediatos identificados
+
+ELABORE PARECER JURÍDICO COMPLETO:
+
+EMENTA: [síntese da consulta e conclusão — até 5 linhas]
+
+I — DA CONSULTA
+[Identificação precisa da questão jurídica]
+
+II — DO RELATÓRIO
+[Contexto fático — objetivo, sem posicionamento]
+
+III — DA FUNDAMENTAÇÃO JURÍDICA
+**3.1 Cenário Favorável ao Consulente**
+[Argumentos, legislação e jurisprudência que amparam a posição]
+
+**3.2 Cenário Desfavorável — Riscos Identificados**
+[Vulnerabilidades, teses adversariais prováveis]
+
+**3.3 Alternativas Jurídicas Disponíveis**
+[Opção A: ... / Opção B: ... / Opção C: ...]
+
+**3.4 Matriz de Risco**
+RISCO ATUAL: [BAIXO / MÉDIO / ALTO]
+Fundamento: [por que]
+
+IV — DA CONCLUSÃO
+[Resposta direta com recomendação estratégica]
+
+② NOTAS DE RODAPÉ
+[Mínimo 15 notas em ABNT superscript ¹²³]`
+  },
+  julgado: {
+    label:"Mineração de julgado",
+    icon:"⛏️",
+    cor:"#6b21a8",
+    desc:"Extrai ratio, lacunas, votos vencidos e cria teses exclusivas",
+    instrucao: `Você recebeu um ACÓRDÃO do STF/STJ/TJSP/TRF para análise estratégica de mineração jurídica.
+
+ANÁLISE PROFUNDA OBRIGATÓRIA:
+
+① RATIO DECIDENDI
+— Qual a tese central vinculante?
+— Em que se baseia (lei, CF, precedente)?
+— Qual o alcance objetivo e subjetivo?
+
+② OBITER DICTA
+— Quais argumentos são periféricos, não vinculantes?
+— Quais podem ser aproveitados em casos análogos?
+
+③ VOTOS VENCIDOS — OPORTUNIDADE ESTRATÉGICA
+— O que os ministros dissidentes argumentaram?
+— Esses argumentos podem embasar pedido de reconsideração/overruling?
+— Há tendência de mudança do tribunal?
+
+④ LACUNAS NÃO ENFRENTADAS — BRECHAS
+— Quais hipóteses fáticas o acórdão não abordou?
+— Há questões que ficaram em aberto?
+— O que foi implicitamente excluído do julgamento?
+
+⑤ DISTINGUISHING — COMO DIFERENCIAR
+— Em quais casos este precedente NÃO se aplica?
+— Quais elementos fáticos criam distinção?
+— Como argumentar que o caso do cliente é distinto?
+
+⑥ TESES EXCLUSIVAS PARA APROVEITAMENTO ESTRATÉGICO
+Tese 1: [nome da tese] — [fundamento + forma de uso]
+Tese 2: [nome da tese] — [fundamento + forma de uso]
+Tese 3: [nome da tese] — [fundamento + forma de uso]
+[Continue até esgotar as oportunidades]
+
+⑦ COMO USAR NO PRÓXIMO CASO
+— Script de argumentação para petição/recurso
+— Citação inline pronta
+— Nota de rodapé formatada
+
+② NOTAS DE RODAPÉ
+[Mínimo 10 notas — doutrina sobre o método e precedentes relacionados]`
+  },
+};
+
+
+// ── Montar content do documento para a API ─────────────────────────
+function montarContentDoc(doc, modoKey, instrucaoExtra) {
+  const modo = MODOS_PECA[modoKey];
+  const instrucao = modo.instrucao + (instrucaoExtra ? `\n\nINSTRUÇÃO ADICIONAL DO USUÁRIO:\n${instrucaoExtra}` : "");
+
+  if (doc.tipo === "pdf") {
+    return [
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: doc.base64 } },
+      { type: "text", text: instrucao },
+    ];
+  }
+  if (doc.tipo === "docx") {
+    return [
+      { type: "text", text: `DOCUMENTO PARA ANÁLISE (${doc.nome}):\n\n${doc.texto.slice(0, 30000)}\n\n---\n\n${instrucao}` },
+    ];
+  }
+  return [{ type: "text", text: instrucao }];
+}
+
+// ── System prompt base ─────────────────────────────────────────────
+function buildSystemPeca(tipoKey, subtipo, area, nivel, temDoc) {
+  const tipo = TIPOS_PECA[tipoKey];
+  return `Você é JurPeça Excellence v2 — redator e analista jurídico de máximo padrão técnico, com leitura de documentos e pesquisa web em tempo real.
+
+Tipo: ${tipo.label} — ${subtipo}
+Área: ${area} | Nível: ${nivel}
+${temDoc ? "MODO ANÁLISE DE DOCUMENTO: ativo — leia o documento integralmente antes de qualquer resposta." : ""}
+
+DESENVOLVIMENTO DE TESE — OBRIGATÓRIO:
+✓ Toda tese jurídica DEVE ser desenvolvida em pelo menos 3 camadas:
+  CAMADA 1 — BASE NORMATIVA: cite o dispositivo legal exato (artigo, inciso, parágrafo) com redação vigente em 2025
+  CAMADA 2 — FUNDAMENTO DOUTRINÁRIO: cite o entendimento majoritário e dissidente com nota ¹²³ ABNT
+  CAMADA 3 — RESPALDO JURISPRUDENCIAL: cite STF/STJ/TRF (2020–2025) com tribunal, tipo, data e tese
+✓ Cada tese principal exige subteses subsidiárias ("ainda que assim não se entenda...")
+✓ NUNCA afirme apenas a conclusão — demonstre o raciocínio jurídico completo
+✓ Peças processuais: mínimo 20 notas de rodapé. Pareceres: mínimo 15 notas.
+✓ Resposta COMPLETA — não interrompa a peça. Inclua TODOS os capítulos/seções do início ao fim.
+
+REGRAS ABSOLUTAS:
+✗ NUNCA invente número de processo, relator, data, autor ou obra
+✗ Se não confirmado → use fórmulas: "o STJ tem reiteradamente decidido que..." / "a doutrina dominante sustenta..."
+✓ Notas superscript ¹²³ — NUNCA [1] ou (1)
+✓ Formato nota: ¹ Prenome Sobrenome, *Título*, N. ed., Cidade, Editora, ano, p. XX. Jurisprudência: ¹ STJ, REsp XXXXXX/UF, Rel. Min. Nome, j. DD/MM/AAAA.
+✓ Ao final: ② NOTAS DE RODAPÉ com TODAS as notas numeradas em sequência
+
+ESTILO: técnico-jurídico preciso · voz impessoal · termos latinos em *itálico* · conectores clássicos (deveras, dessarte, ex vi, ad argumentandum)`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// COMPONENTE PRINCIPAL
+// ═══════════════════════════════════════════════════════════════════
 function JurPecaV2() {
   const [tipoKey, setTipoKey]   = useState("peticao");
   const [subtipo, setSubtipo]   = useState(TIPOS_PECA.peticao.subtipos[0]);
@@ -2796,6 +3075,66 @@ ESTILO:
 • Termos estrangeiros em *itálico* quando não incorporados ao vernáculo jurídico
 • Estrutura: numeração com algarismos romanos para seções principais (I, II, III...)
 • Ao final de análises: § de recomendação prática / conclusão operacional`;
+}
+
+function JFRichText({content}){
+  return(<div style={{lineHeight:1.75,fontSize:13}}>
+    {content.split("\n").map((line,i)=>{
+      if(!line.trim())return<div key={i} style={{height:8}}/>;
+      const parts=[];const re=/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;let last=0,m;
+      while((m=re.exec(line))!==null){if(m.index>last)parts.push(<span key={last}>{line.slice(last,m.index)}</span>);const tok=m[0];if(tok.startsWith("**"))parts.push(<strong key={m.index}>{tok.slice(2,-2)}</strong>);else if(tok.startsWith("*"))parts.push(<em key={m.index}>{tok.slice(1,-1)}</em>);else parts.push(<code key={m.index} style={{background:"rgba(0,0,0,.07)",padding:"1px 5px",borderRadius:3,fontFamily:"monospace",fontSize:11}}>{tok.slice(1,-1)}</code>);last=m.index+tok.length;}
+      if(last<line.length)parts.push(<span key={last}>{line.slice(last)}</span>);
+      return<div key={i}>{parts}</div>;
+    })}
+  </div>);
+}
+
+function JFModalNormativas({onClose,onUsar}){
+  const[busca,setBusca]=useState("");
+  const[org,setOrg]=useState("Todas");
+  const C={border:"#ddd9d0",bg:"#f5f4f1",nav:"#12192e",gold:"#c49a2a",textSec:"#555",textTer:"#999"};
+  const resultado=JF_NORMATIVAS.filter(n=>{
+    const q=busca.toLowerCase();
+    const mb=!busca||[n.numero,n.tema,...(n.tags||[])].some(s=>s.toLowerCase().includes(q));
+    const mo=org==="Todas"||n.org===org;
+    return mb&&mo;
+  });
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(5,10,25,.87)",zIndex:4000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"white",borderRadius:10,width:"100%",maxWidth:700,maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 40px 100px rgba(0,0,0,.6)"}}>
+        <div style={{background:`linear-gradient(90deg,#0f1a33,${C.nav})`,padding:"14px 22px",borderRadius:"10px 10px 0 0",display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontSize:22}}>📚</span>
+          <span style={{color:"white",fontWeight:700,fontSize:15,fontFamily:"Georgia,serif",flex:1}}>Base Normativa — {JF_NORMATIVAS.length} normas</span>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,.12)",border:"1px solid rgba(255,255,255,.2)",color:"white",width:32,height:32,borderRadius:5,cursor:"pointer",fontSize:18}}>×</button>
+        </div>
+        <div style={{padding:"12px 18px",borderBottom:`1px solid ${C.border}`,display:"flex",gap:10}}>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por número, tema ou tag..." style={{flex:1,padding:"8px 12px",border:`1px solid ${C.border}`,borderRadius:4,fontFamily:"Georgia,serif",fontSize:13,outline:"none"}}/>
+          <select value={org} onChange={e=>setOrg(e.target.value)} style={{padding:"8px",border:`1px solid ${C.border}`,borderRadius:4,fontFamily:"monospace",fontSize:12,outline:"none",background:C.bg}}>
+            {["Todas","Federal","CVM","CMN","BACEN","IOSCO","BIS","EU","EUA"].map(o=><option key={o} value={o}>{o}</option>)}
+          </select>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"8px 18px"}}>
+          {resultado.map(n=>(
+            <div key={n.id} style={{padding:"10px 12px",borderBottom:`1px solid ${C.border}`,display:"flex",gap:10,alignItems:"flex-start"}}>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+                  <span style={{fontSize:10,fontFamily:"monospace",padding:"1px 7px",background:"#ede8df",borderRadius:10,color:"#555"}}>{n.org}</span>
+                  <span style={{fontSize:11,fontWeight:700,color:C.nav}}>{n.tipo} {n.numero}</span>
+                </div>
+                <div style={{fontSize:12,color:C.textSec,lineHeight:1.5,marginBottom:4}}>{n.tema}</div>
+                <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>{(n.tags||[]).slice(0,5).map(t=><span key={t} style={{fontSize:9,padding:"1px 6px",background:"#f0ebe0",borderRadius:8,color:C.textTer,fontFamily:"monospace"}}>{t}</span>)}</div>
+              </div>
+              <button onClick={()=>{onUsar(`${n.tipo} ${n.numero} — ${n.tema}`);onClose();}}
+                style={{padding:"4px 10px",background:"transparent",border:`1px solid ${C.border}`,borderRadius:4,cursor:"pointer",fontSize:10,fontFamily:"monospace",color:C.textSec,flexShrink:0}}>
+                → Usar
+              </button>
+            </div>
+          ))}
+          {resultado.length===0&&<div style={{textAlign:"center",padding:"32px",color:C.textTer,fontSize:13}}>Nenhuma norma encontrada</div>}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function JurFinanceiro(){
