@@ -1640,8 +1640,7 @@ Ao final, liste apenas os capítulos:
 1|Título do Capítulo 1
 2|Título do Capítulo 2
 \`\`\``;
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:8000,messages:[{role:"user",content:prompt}]})});
-      const data=await res.json();
+      const data=await callClaude({model:"claude-sonnet-4-20250514",max_tokens:8000,messages:[{role:"user",content:prompt}]});
       const text=data?.content?.[0]?.text||"";
       if(!text)throw new Error("Resposta vazia.");
       setOutput(text);setStep("result");
