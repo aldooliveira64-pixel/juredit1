@@ -1852,7 +1852,8 @@ function JurObraV2() {
   const handleExport = async () => {
     const conteudo = msgs.filter(m=>m.role==="assistant").map(m=>m.content).join("\n\n");
     if (!conteudo.trim()) return;
-    await withExport(async () => { await gerarDocxObra(conteudo, projeto); setExportStatus("done"); setTimeout(()=>setExportStatus("idle"),6000); }
+    await withExport(async () => {
+      await gerarDocxObra(conteudo, projeto);
     }, setExportStatus, 6000);
   };
 
@@ -2627,7 +2628,8 @@ function JurPecaV2() {
   const handleExport = async () => {
     const conteudo = msgs.filter(m => m.role === "assistant").map(m => m.content).join("\n\n");
     if (!conteudo.trim()) return;
-    await withExport(async () => { await gerarDocxPeca(conteudo, titulo || subtipo, tipo.label + " · " + area); setExportStatus("done"); setTimeout(() => setExportStatus("idle"), 5000); }
+    await withExport(async () => {
+      await gerarDocxPeca(conteudo, titulo || subtipo, tipo.label + " · " + area);
     }, setExportStatus, 5000);
   };
 
@@ -3222,7 +3224,8 @@ function JurFinanceiro(){
   const handleExport=async()=>{
     const conteudo=msgs.filter(m=>m.role==="assistant").map(m=>m.content).join("\n\n");
     if(!conteudo.trim())return;
-    await withExport(async () => {await jfExportarDocx(conteudo,titulo||tipo.label);setExportStatus("done");setTimeout(()=>setExportStatus("idle"),5000);}
+    await withExport(async () => {
+      await jfExportarDocx(conteudo, titulo||tipo.label);
     }, setExportStatus, 5000);
   };
 
