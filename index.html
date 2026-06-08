@@ -25,9 +25,19 @@ select,input,textarea{box-sizing:border-box;font-family:inherit}
 const {useState,useEffect,useRef,useCallback}=React;
 
 // ── API KEY ───────────────────────────────────────────────────────
-const KEY_STORE='je_apikey';
-const getKey=()=>localStorage.getItem(KEY_STORE)||'';
-const saveKey=k=>localStorage.setItem(KEY_STORE,k.trim());
+const KEY_CLAUDE='je_apikey';
+const KEY_GEMINI='je_gemkey';
+const getKey=()=>localStorage.getItem(KEY_CLAUDE)||'';
+const getGemKey=()=>localStorage.getItem(KEY_GEMINI)||'';
+const saveKey=k=>localStorage.setItem(KEY_CLAUDE,k.trim());
+const saveGemKey=k=>localStorage.setItem(KEY_GEMINI,k.trim());
+const getMotor=()=>{
+  if(getKey().startsWith('sk-ant-'))return'claude';
+  if(getGemKey().startsWith('AIza'))return'gemini';
+  if(getKey())return'claude';
+  if(getGemKey())return'gemini';
+  return null;
+};
 
 // ── STORAGE ───────────────────────────────────────────────────────
 const ls=(k,d=null)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch{return d;}};
@@ -51,6 +61,46 @@ async function callClaude(body){
   const d=await r.json();
   if(!r.ok)throw new Error(d?.error?.message||`Erro ${r.status}`);
   return d;
+}
+
+// ── GEMINI API ────────────────────────────────────────────────────
+// Converte o formato Claude (messages + system) para Gemini generateContent
+async function callGemini({model, max_tokens, system, messages}){
+  const key=getGemKey();
+  if(!key)throw new Error('Chave Gemini não configurada.');
+  const gemModel='gemini-2.0-flash';
+  const url=`https://generativelanguage.googleapis.com/v1beta/models/${gemModel}:generateContent?key=${key}`;
+
+  // Monta contents no formato Gemini (user/model alternado)
+  const contents=messages.map(m=>({
+    role: m.role==='assistant'?'model':'user',
+    parts:[{text: typeof m.content==='string'?m.content:
+      (Array.isArray(m.content)?m.content.filter(b=>b.type==='text').map(b=>b.text).join('\n'):'')
+    }]
+  }));
+
+  // System prompt vira systemInstruction
+  const body={
+    contents,
+    generationConfig:{maxOutputTokens:max_tokens||8000,temperature:0.7},
+    ...(system?{systemInstruction:{parts:[{text:system}]}}:{})
+  };
+
+  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(!r.ok)throw new Error(d?.error?.message||`Gemini erro ${r.status}`);
+  const text=d?.candidates?.[0]?.content?.parts?.[0]?.text||'';
+  // Retorna no mesmo formato que callClaude para compatibilidade
+  return{content:[{type:'text',text}]};
+}
+
+// ── ROTEADOR DE IA ─────────────────────────────────────────────────
+// Usa Claude se disponível, senão Gemini. Mesma assinatura de callClaude.
+async function callAI(payload){
+  const motor=getMotor();
+  if(motor==='claude')return callClaude(payload);
+  if(motor==='gemini')return callGemini(payload);
+  throw new Error('Nenhuma chave de API configurada. Acesse Configurações.');
 }
 
 // ── TRATAMENTO DE ERRO CENTRALIZADO ──────────────────────────────
@@ -199,39 +249,63 @@ const TOOLS={
 
 // ── KEY SETUP ─────────────────────────────────────────────────────
 function KeySetup({onSave}){
-  const[k,setK]=useState('');const[err,setErr]=useState('');const[loading,setLoading]=useState(false);
-  const test=async()=>{
+  const[k,setK]=useState('');
+  const[err,setErr]=useState('');
+  const[loading,setLoading]=useState(false);
+
+  // Detecta tipo pela chave digitada
+  const tipo=k.trim().startsWith('sk-ant-')?'claude':k.trim().startsWith('AIza')?'gemini':'?';
+
+  const salvar=async()=>{
     if(!k.trim()){setErr('Cole sua chave API.');return;}
-    await withLoading(async () => {
-      const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':k.trim(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:5,messages:[{role:'user',content:'ok'}]})});
-      if(r.status===200||r.status===400){saveKey(k.trim());onSave();}
-      else if(r.status===401){setErr('Chave inválida. Verifique em console.anthropic.com');}
-      else{saveKey(k.trim());onSave();}
-    }, setLoading, setErr);
+    if(k.trim().startsWith('AIza')){
+      // Gemini: valida com uma chamada simples
+      await withLoading(async()=>{
+        const url=`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${k.trim()}`;
+        const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({contents:[{role:'user',parts:[{text:'ok'}]}],generationConfig:{maxOutputTokens:5}})});
+        if(r.status===400||r.status===200){saveGemKey(k.trim());onSave();}
+        else if(r.status===403||r.status===401){setErr('Chave Gemini inválida.');}
+        else{saveGemKey(k.trim());onSave();}
+      },setLoading,setErr);
+    } else {
+      // Claude
+      await withLoading(async()=>{
+        const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',
+          headers:{'Content-Type':'application/json','x-api-key':k.trim(),
+            'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+          body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:5,messages:[{role:'user',content:'ok'}]})});
+        if(r.status===200||r.status===400){saveKey(k.trim());onSave();}
+        else if(r.status===401){setErr('Chave Claude inválida.');}
+        else{saveKey(k.trim());onSave();}
+      },setLoading,setErr);
+    }
   };
+
   return(
     <div style={{minHeight:'100vh',background:'#12192e',display:'flex',alignItems:'center',justifyContent:'center',padding:20}}>
-      <div style={{background:'white',borderRadius:12,padding:40,maxWidth:480,width:'100%',boxShadow:'0 40px 100px rgba(0,0,0,.5)'}}>
+      <div style={{background:'white',borderRadius:12,padding:40,maxWidth:480,width:'100%',boxShadow:'0 40px 100px rgba(0,0,0,.4)'}}>
         <div style={{textAlign:'center',marginBottom:28}}>
           <div style={{fontSize:36,marginBottom:8}}>⚖️</div>
           <div style={{fontSize:22,fontWeight:700,color:'#12192e',marginBottom:6}}>JurEdit</div>
-          <div style={{fontSize:13,color:'#555',lineHeight:1.7}}>Ecossistema Jurídico Inteligente<br/>Configure sua chave API para começar</div>
+          <div style={{fontSize:13,color:'#555',lineHeight:1.7}}>Ecossistema Jurídico Inteligente<br/>Configure sua chave de IA para começar</div>
         </div>
-        <div style={{background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:8,padding:'12px 16px',marginBottom:20,fontSize:12,color:'#1e40af',lineHeight:1.7}}>
-          <strong>Como obter sua chave gratuita:</strong><br/>
-          1. Acesse <a href="https://console.anthropic.com" target="_blank" style={{color:'#1d4ed8'}}>console.anthropic.com</a><br/>
-          2. Crie uma conta (gratuita)<br/>
-          3. Clique em <strong>API Keys → Create Key</strong><br/>
-          4. Cole abaixo — fica salvo só no seu navegador
+        <div style={{background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:8,padding:'12px 16px',marginBottom:20,fontSize:12,lineHeight:1.8,color:'#166534'}}>
+          <strong>Motor de IA — escolha um:</strong><br/>
+          🟢 <strong>Gemini (gratuito):</strong> <a href="https://aistudio.google.com/apikey" target="_blank" style={{color:'#166534'}}>aistudio.google.com/apikey</a> → Get API Key<br/>
+          🔵 <strong>Claude (pago):</strong> <a href="https://console.anthropic.com" target="_blank" style={{color:'#1d4ed8'}}>console.anthropic.com</a> → API Keys<br/>
+          A chave fica salva só no seu navegador — nunca enviada a terceiros
         </div>
-        <label style={{fontSize:11,fontWeight:700,display:'block',marginBottom:6,color:'#333',textTransform:'uppercase',letterSpacing:'.06em'}}>Chave API Anthropic</label>
-        <input value={k} onChange={e=>setK(e.target.value)} placeholder="sk-ant-..." type="password"
-          style={{width:'100%',padding:'10px 14px',border:'1px solid #ddd9d0',borderRadius:6,fontFamily:'monospace',fontSize:13,outline:'none',marginBottom:10}}
+        <label style={{fontSize:11,fontWeight:700,display:'block',marginBottom:6,color:'#333',textTransform:'uppercase',letterSpacing:1}}>
+          Chave API {tipo==='gemini'?'🟢 Gemini detectada':tipo==='claude'?'🔵 Claude detectada':'— cole abaixo (AIza... ou sk-ant-...)'}
+        </label>
+        <input value={k} onChange={e=>setK(e.target.value)} placeholder="AIza... (Gemini) ou sk-ant-... (Claude)" type="password"
+          style={{width:'100%',padding:'10px 14px',border:'1px solid #ddd9d0',borderRadius:6,fontFamily:'monospace',fontSize:13,boxSizing:'border-box',outline:'none'}}
           onFocus={e=>e.target.style.borderColor='#7c3aed'} onBlur={e=>e.target.style.borderColor='#ddd9d0'}/>
-        {err&&<div style={{padding:'8px 12px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:4,fontSize:12,color:'#991b1b',marginBottom:10,fontFamily:'monospace'}}>{err}</div>}
-        <button onClick={test} disabled={loading||!k.trim()}
-          style={{width:'100%',padding:'12px',background:loading||!k.trim()?'#aaa':'#12192e',color:'white',border:'none',borderRadius:6,cursor:loading||!k.trim()?'not-allowed':'pointer',fontSize:14,fontFamily:'Georgia,serif',fontWeight:700,transition:'background .2s'}}>
-          {loading?'⏳ Verificando...':'✓ Salvar e Entrar'}
+        {err&&<div style={{padding:'8px 12px',background:'#fef2f2',border:'1px solid #fca5a5',borderRadius:4,fontSize:12,color:'#dc2626',marginTop:8}}>{err}</div>}
+        <button onClick={salvar} disabled={loading||!k.trim()}
+          style={{width:'100%',padding:'12px',background:loading||!k.trim()?'#aaa':'#12192e',color:'white',border:'none',borderRadius:6,fontSize:14,fontWeight:600,cursor:loading||!k.trim()?'not-allowed':'pointer',marginTop:14}}>
+          {loading?'⏳ Verificando...':tipo==='gemini'?'✓ Salvar Chave Gemini':tipo==='claude'?'✓ Salvar Chave Claude':'✓ Salvar e Entrar'}
         </button>
         <div style={{marginTop:12,fontSize:11,color:'#999',textAlign:'center',lineHeight:1.6}}>
           A chave fica salva somente no seu navegador — nunca enviada a terceiros
@@ -286,7 +360,7 @@ function ChatTool({tool}){
     const novasMsgs=[...msgs,{role:'user',content:typeof apiContent==='string'?apiContent:prompt,docNome:doc?.nome,_api:apiContent}];
     setMsgs(novasMsgs);
     await withLoadingMsg(async () => {
-      const data=await callClaude({model:'claude-sonnet-4-20250514',max_tokens:8000,system:tool.system||'Você é um assistente jurídico especializado.',messages:novasMsgs.map(m=>({role:m.role,content:m._api||m.content}))});
+      const data=await callAI({model:'claude-sonnet-4-20250514',max_tokens:8000,system:tool.system||'Você é um assistente jurídico especializado.',messages:novasMsgs.map(m=>({role:m.role,content:m._api||m.content}))});
       const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
       setMsgs(prev=>[...prev,{role:'assistant',content:txt||'Sem resposta.'}]);
       setDoc(null);
@@ -1035,9 +1109,1068 @@ function BibTool(){
     setIaResult('');setIaErro('');
     await withLoading(async () => {
       const prompt=`Você é especialista em doutrina jurídica. Pesquise e liste referências doutrinárias REAIS sobre:\n\nTema: "${busca}"${area!=="Todas as áreas"?`\nÁrea: ${area}`:""}${periodo!=="Qualquer período"?`\nPeríodo: ${periodo}`:""}.\n\nREGRAS: Somente obras que você tem certeza que existem. Se não tiver certeza da edição/página, omita.\nInclua obras nacionais E estrangeiras. Priorize 2018–2025 (exceto clássicos indispensáveis).\n\nPara cada obra:\n**[SOBRENOME, Prenome. *Título*. N. ed. Cidade: Editora, Ano.]**\nRelevância: [1–2 frases]\nNota de rodapé: [SOBRENOME, *Título abrev.*, ed., cidade, editora, ano, p. XX.]\n\nAo final: "**COMO USAR NO TEXTO:**" com 3 exemplos de citação integrada.\nListe pelo menos 8 obras:`;
-      const resp=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':getKey(),'anthropic-version':'2023-06-01','anthropic-beta':'web-search-2025-03-05','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}],tools:[{type:'web_search_20250305',name:'web_search'}]})});
-      const data=await resp.json();
-      if(!resp.ok)throw new Error(data?.error?.message||`Erro ${resp.status}`);
+      const data=await callAI({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]});
+      const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+      if(!txt)throw new Error('Resposta vazia.');
+      setIaResult(txt);
+      await bibCacheAdd('[IA] '+txt.slice(0,300));
+    }, setLoading, setIaErro);
+  },[busca,area,periodo,tipoRef]);
+  const copiarTodos=async()=>{const txt=resultados.map(r=>abntCompleta(r)).join('\n');navigator.clipboard?.writeText(txt);await bibCacheAdd(txt);setCpTodos(true);setTimeout(()=>setCpTodos(false),3000);};
+  const C={bg:'#f5f4f1',white:'white',nav:'#12192e',gold:'#c49a2a',border:'#ddd9d0',textPri:'#111',textSec:'#555',textTer:'#999'};
+  return(
+    <div style={{height:'100%',display:'flex',flexDirection:'column',background:C.bg,overflow:'hidden'}}>
+      <div style={{background:C.nav,padding:'0 20px',display:'flex',alignItems:'center',gap:12,height:48,flexShrink:0}}>
+        <span style={{color:C.gold,fontFamily:'monospace',fontWeight:700,fontSize:13,letterSpacing:'.1em'}}>JURBIBLIOTECA</span>
+        <span style={{background:`${C.gold}25`,border:`1px solid ${C.gold}55`,color:C.gold,fontSize:9,padding:'2px 8px',borderRadius:2,fontFamily:'monospace'}}>v2 · {CLASSICOS.length} obras · auto-save Hub</span>
+        <span style={{fontSize:11,color:'rgba(255,255,255,.35)',fontFamily:'monospace',marginLeft:8}}>Copiar → grava automaticamente no Hub</span>
+      </div>
+      <div style={{flex:1,overflowY:'auto',padding:'18px 20px'}}>
+        <div style={{padding:'9px 14px',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:6,marginBottom:12,fontSize:12,color:'#374151'}}>
+        <label style={{fontSize:11,fontWeight:700,display:'block',marginBottom:6,color:'#333',textTransform:'uppercase',letterSpacing:1}}>
+          Chave API {tipo==='gemini'?'🟢 Gemini':tipo==='claude'?'🔵 Claude':'— cole abaixo'}
+        </label>
+        <input value={k} onChange={e=>setK(e.target.value)} placeholder="AIza... ou sk-ant-..." type="password"
+          style={{width:'100%',padding:'10px 14px',border:'1px solid #ddd9d0',borderRadius:6,fontFamily:'monospace',fontSize:13,boxSizing:'border-box',outline:'none'}}
+          onFocus={e=>e.target.style.borderColor='#7c3aed'} onBlur={e=>e.target.style.borderColor='#ddd9d0'}/>tion.min.js"></script>
+<script src="jurdocx.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/mammoth@1.8.0/mammoth.browser.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body,#root{height:100%;overflow:hidden}
+body{font-family:Georgia,serif;background:#f5f4f1;color:#111}
+::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#ccc;border-radius:3px}
+select,input,textarea{box-sizing:border-box;font-family:inherit}
+@keyframes bounce{0%,80%,100%{transform:scale(0.7);opacity:.4}40%{transform:scale(1);opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback}=React;
+
+// ── API KEY ───────────────────────────────────────────────────────
+const KEY_CLAUDE='je_apikey';
+const KEY_GEMINI='je_gemkey';
+const getKey=()=>localStorage.getItem(KEY_CLAUDE)||'';
+const getGemKey=()=>localStorage.getItem(KEY_GEMINI)||'';
+const saveKey=k=>localStorage.setItem(KEY_CLAUDE,k.trim());
+const saveGemKey=k=>localStorage.setItem(KEY_GEMINI,k.trim());
+const getMotor=()=>{
+  if(getKey().startsWith('sk-ant-'))return'claude';
+  if(getGemKey().startsWith('AIza'))return'gemini';
+  if(getKey())return'claude';
+  if(getGemKey())return'gemini';
+  return null;
+};
+
+// ── STORAGE ───────────────────────────────────────────────────────
+const ls=(k,d=null)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch{return d;}};
+const lsSet=(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}};
+
+// ── API CALL ──────────────────────────────────────────────────────
+async function callClaude(body){
+  const k=getKey();
+  if(!k)throw new Error('Chave não configurada.');
+  const r=await fetch('https://api.anthropic.com/v1/messages',{
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json',
+      'x-api-key':k,
+      'anthropic-version':'2023-06-01',
+      'anthropic-beta':'web-search-2025-03-05',
+      'anthropic-dangerous-direct-browser-access':'true',
+    },
+    body:JSON.stringify(body),
+  });
+  const d=await r.json();
+  if(!r.ok)throw new Error(d?.error?.message||`Erro ${r.status}`);
+  return d;
+}
+
+// ── GEMINI API ────────────────────────────────────────────────────
+// Converte o formato Claude (messages + system) para Gemini generateContent
+async function callGemini({model, max_tokens, system, messages}){
+  const key=getGemKey();
+  if(!key)throw new Error('Chave Gemini não configurada.');
+  const gemModel='gemini-2.0-flash';
+  const url=`https://generativelanguage.googleapis.com/v1beta/models/${gemModel}:generateContent?key=${key}`;
+
+  // Monta contents no formato Gemini (user/model alternado)
+  const contents=messages.map(m=>({
+    role: m.role==='assistant'?'model':'user',
+    parts:[{text: typeof m.content==='string'?m.content:
+      (Array.isArray(m.content)?m.content.filter(b=>b.type==='text').map(b=>b.text).join('\n'):'')
+    }]
+  }));
+
+  // System prompt vira systemInstruction
+  const body={
+    contents,
+    generationConfig:{maxOutputTokens:max_tokens||8000,temperature:0.7},
+    ...(system?{systemInstruction:{parts:[{text:system}]}}:{})
+  };
+
+  const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json();
+  if(!r.ok)throw new Error(d?.error?.message||`Gemini erro ${r.status}`);
+  const text=d?.candidates?.[0]?.content?.parts?.[0]?.text||'';
+  // Retorna no mesmo formato que callClaude para compatibilidade
+  return{content:[{type:'text',text}]};
+}
+
+// ── ROTEADOR DE IA ─────────────────────────────────────────────────
+// Usa Claude se disponível, senão Gemini. Mesma assinatura de callClaude.
+async function callAI(payload){
+  const motor=getMotor();
+  if(motor==='claude')return callClaude(payload);
+  if(motor==='gemini')return callGemini(payload);
+  throw new Error('Nenhuma chave de API configurada. Acesse Configurações.');
+}
+
+// ── TRATAMENTO DE ERRO CENTRALIZADO ──────────────────────────────
+// withLoading(fn, setLoading, setErro?)
+// Executa fn async: seta loading=true antes, false no finally.
+// Se lançar exceção, chama setErro (quando fornecido) ou injeta
+// mensagem de erro no chat via setErro como setter de mensagens.
+// Retorna o resultado de fn ou null em caso de erro.
+async function withLoading(fn, setLoading, setErro) {
+  setLoading(true);
+  if (setErro) setErro('');
+  try {
+    return await fn();
+  } catch (e) {
+    if (setErro) setErro(e.message || 'Erro de conexão. Tente novamente.');
+    return null;
+  } finally {
+    setLoading(false);
+  }
+}
+
+// withLoadingMsg(fn, setLoading, setMsgs)
+// Variante para componentes de chat: erros viram mensagem do assistente.
+async function withLoadingMsg(fn, setLoading, setMsgs) {
+  setLoading(true);
+  try {
+    return await fn();
+  } catch (e) {
+    setMsgs(prev => [...prev, { role: 'assistant', content: '❌ ' + (e.message || 'Erro de conexão. Tente novamente.') }]);
+    return null;
+  } finally {
+    setLoading(false);
+  }
+}
+
+// withExport(fn, setExportStatus, timeoutMs?)
+// Para botões de exportação DOCX: idle→loading→done|error→idle.
+async function withExport(fn, setExportStatus, timeoutMs = 5000) {
+  setExportStatus('loading');
+  try {
+    await fn();
+    setExportStatus('done');
+    setTimeout(() => setExportStatus('idle'), timeoutMs);
+  } catch (e) {
+    console.error(e);
+    setExportStatus('error');
+    setTimeout(() => setExportStatus('idle'), 3000);
+  }
+}
+
+// ── DOCX ENGINE v1 (JurDocxEngine_v1) ────────────────────────────
+// Motor unificado — substitui o motor antigo do index
+function analisarTexto(rawText){
+  const lines=rawText.split("\n");
+  let secoes=0,paragrafos=0,notasEncontradas=0,capituloDetectado="";
+  const titulos=[];
+  const noteSecIdx=lines.findIndex(l=>/^②?\s*(NOTAS?\s*DE\s*RODAP)/i.test(l.trim().replace(/\*\*/g,"")));
+  const bodyLines=noteSecIdx>-1?lines.slice(0,noteSecIdx):lines;
+  for(const line of bodyLines){
+    const raw=line.trim();if(!raw)continue;
+    if(/^Cap[íi]tulo\s+[IVXLCDM\d]+$/i.test(raw))capituloDetectado=raw;
+    else if(raw===raw.toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(raw)&&raw.length>4&&!/^\d/.test(raw))titulos.push(raw.slice(0,55));
+    else if(/^\*\*[^*]+\*\*$/.test(raw)||/^#{1,3}\s/.test(raw))secoes++;
+    else if(raw.length>40&&!/^[①②③④⑤⑥⑦⑧]/.test(raw))paragrafos++;
+  }
+  if(noteSecIdx>-1){for(const ln of lines.slice(noteSecIdx+1)){const r=ln.trim();if(!r)continue;const p=parseNoteNum(r);if(p)notasEncontradas++;}}
+  else{for(const ln of lines){const r=ln.trim();if((SUP_CHARS.includes(r[0])||/^\d{1,2}[.\)]\s/.test(r))&&r.length<400){const p=parseNoteNum(r);if(p&&p.text.length>10)notasEncontradas++;}}}
+  const palavras=rawText.split(/\s+/).filter(Boolean).length;
+  return{capituloDetectado,titulos,secoes,paragrafos,notasEncontradas,palavras,linhas:lines.length};
+}
+
+// ── Wrapper legado docxDownload (usado por HubTool, etc.) ─────────
+function docxDownload(paras,hTxt,fnE,filename){
+  const textoPseudo=paras.join('\n');
+  const nomeLivro=String(hTxt||'').slice(0,60);
+  const proj={nome:'',area:'',autores:'',capsOk:[],capsProx:[]};
+  // Monta o XML final direto sem reparsear (paras já são XML puro)
+  const FNX=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>${(fnE||[]).map(([id,t])=>wFootnote(Number(id),t)).join('')}</w:footnotes>`;
+  const H=ex(String(hTxt||'').slice(0,80));
+  const HDR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="right"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:after="80"/></w:pPr><w:r><w:rPr><w:i/><w:color w:val="555555"/><w:sz w:val="16"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>${H}</w:t></w:r></w:p></w:hdr>`;
+  const FTR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="center"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:before="80"/></w:pPr><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r></w:p></w:ftr>`;
+  const docXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${paras.join('')}<w:sectPr><w:headerReference w:type="default" r:id="rH1"/><w:footerReference w:type="default" r:id="rF1"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1800" w:right="1800" w:bottom="1800" w:left="1800" w:header="708" w:footer="708"/><w:pgNumType/></w:sectPr></w:body></w:document>`;
+  const rD=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable" Target="fontTable.xml"/><Relationship Id="rH1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rF1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>`;
+  const rR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const ct=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/><Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>`;
+  const sy=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:jc w:val="both"/></w:pPr></w:style><w:style w:type="character" w:styleId="DefaultParagraphFont"><w:name w:val="Default Paragraph Font"/><w:uiPriority w:val="1"/><w:semiHidden/><w:unhideWhenUsed/></w:style><w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:basedOn w:val="DefaultParagraphFont"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:basedOn w:val="Normal"/><w:link w:val="FootnoteTextChar"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style><w:style w:type="character" w:styleId="FootnoteTextChar"><w:name w:val="Footnote Text Char"/><w:basedOn w:val="DefaultParagraphFont"/><w:link w:val="FootnoteText"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style></w:styles>`;
+  const se=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:displayBackgroundShape/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>`;
+  const ft=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:fonts xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:font w:name="Times New Roman"><w:panose1 w:val="02020603050405020304"/><w:charset w:val="00"/><w:family w:val="roman"/><w:pitch w:val="variable"/></w:font></w:fonts>`;
+  const fnR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`;
+  const files=[{name:'[Content_Types].xml',data:strToU8(ct)},{name:'_rels/.rels',data:strToU8(rR)},{name:'word/document.xml',data:strToU8(docXml)},{name:'word/styles.xml',data:strToU8(sy)},{name:'word/settings.xml',data:strToU8(se)},{name:'word/fontTable.xml',data:strToU8(ft)},{name:'word/footnotes.xml',data:strToU8(FNX)},{name:'word/header1.xml',data:strToU8(HDR)},{name:'word/footer1.xml',data:strToU8(FTR)},{name:'word/_rels/document.xml.rels',data:strToU8(rD)},{name:'word/_rels/footnotes.xml.rels',data:strToU8(fnR)}];
+  const zd=buildZip(files);
+  function u8b64(u){let b='';const c=8192;for(let i=0;i<u.length;i+=c)b+=String.fromCharCode(...u.subarray(i,i+c));return btoa(b);}
+  const uri='data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,'+u8b64(zd);
+  let url;try{url=URL.createObjectURL(new Blob([zd],{type:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'}));}catch{url=uri;}
+  const a=document.createElement('a');a.href=url;a.download=filename;a.style.display='none';document.body.appendChild(a);a.click();setTimeout(()=>{document.body.removeChild(a);if(url!==uri)URL.revokeObjectURL(url);},1000);
+}
+
+// ── RichText ──────────────────────────────────────────────────────
+function RichText({content}){
+  return <div style={{lineHeight:1.75,fontSize:13}}>
+    {(content||'').split('\n').map((line,i)=>{
+      if(!line.trim())return <div key={i} style={{height:8}}/>;
+      const parts=[];const re=/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;let last=0,m;
+      while((m=re.exec(line))!==null){
+        if(m.index>last)parts.push(<span key={last}>{line.slice(last,m.index)}</span>);
+        const tok=m[0];
+        if(tok.startsWith('**'))parts.push(<strong key={m.index}>{tok.slice(2,-2)}</strong>);
+        else if(tok.startsWith('*'))parts.push(<em key={m.index}>{tok.slice(1,-1)}</em>);
+        else parts.push(<code key={m.index} style={{background:'rgba(0,0,0,.07)',padding:'1px 5px',borderRadius:3,fontFamily:'monospace',fontSize:11}}>{tok.slice(1,-1)}</code>);
+        last=m.index+tok.length;
+      }
+      if(last<line.length)parts.push(<span key={last}>{line.slice(last)}</span>);
+      return <div key={i}>{parts}</div>;
+    })}
+  </div>;
+}
+
+// ── TOOL CONFIGS ──────────────────────────────────────────────────
+const TOOLS={
+  hub:{id:'hub',icon:'🏠',label:'JurHub',cor:'#c49a2a',desc:'Projeto · Bancos · Export'},
+  obra:{id:'obra',icon:'📚',label:'JurObra',cor:'#8b1a1a',desc:'Livros · Tratados · Teses',
+    system:`Você é JurObra Excellence v2 — redator jurídico de máximo padrão acadêmico com busca web em tempo real. PADRÃO: Capítulo N / TÍTULO EM CAIXA ALTA / EMENTA_CAP: subtemas. / --- / Seções em **negrito** / parágrafos com recuo / mínimo 30 notas ¹²³ / ② NOTAS DE RODAPÉ. ✗ NUNCA invente número de processo, relator ou obra. ✓ NUNCA corte o texto — entregue COMPLETO.`,
+    acoes:[
+      {ic:'📝',l:'Capítulo completo',p:'Pesquise jurisprudência e doutrina e desenvolva o CAPÍTULO COMPLETO com padrão manual clássico, mínimo 30 notas ¹²³ e ② NOTAS DE RODAPÉ. Tema: '},
+      {ic:'📄',l:'Introdução da obra',p:'Redija a Introdução completa com apresentação, justificativa, delimitação, metodologia e estrutura, para: '},
+      {ic:'📚',l:'Referências doutrinárias',p:'Pesquise e cite doutrina nacional e estrangeira (2020–2025 + clássicos) sobre: '},
+      {ic:'🔎',l:'Jurisprudência STF/STJ',p:'Pesquise jurisprudência STF e STJ (2020–2025) com número, relator, turma e data sobre: '},
+      {ic:'▶️',l:'Continuar texto',p:'Continue o texto EXATAMENTE de onde parou, sem repetir nenhuma linha:\n\n'},
+      {ic:'✏️',l:'Editar e aprimorar',p:'Edite preservando a voz e posicionamento do autor:\n\n'},
+    ]},
+  peca:{id:'peca',icon:'⚖️',label:'JurPeça',cor:'#7c3aed',desc:'Petição · Parecer · Contestação',
+    system:`Você é JurPeça Excellence v2 — redator jurídico de máximo padrão técnico com pesquisa web em tempo real. ✗ NUNCA invente número de processo, relator, data ou obra. ✓ Notas superscript ¹²³ — NUNCA [1] ou (1). ✓ Legislação vigente em 2025. ✓ Ao final: ② NOTAS DE RODAPÉ. ESTILO: técnico-jurídico preciso · voz impessoal · termos latinos em *itálico*.`,
+    acoes:[
+      {ic:'📋',l:'Peça completa',p:'Pesquise legislação e jurisprudência STF/STJ (2020–2025) e elabore a peça completa com estrutura processual, notas ¹²³ e ② NOTAS DE RODAPÉ, sobre: '},
+      {ic:'📝',l:'Dos Fatos',p:'Redija a seção DOS FATOS de forma objetiva e cronológica para: '},
+      {ic:'⚖️',l:'Do Direito',p:'Elabore DO DIREITO com fundamentos legais, doutrina e jurisprudência (notas ¹²³) sobre: '},
+      {ic:'📜',l:'Dos Pedidos',p:'Elabore DOS PEDIDOS completo e em ordem lógica para: '},
+      {ic:'🚨',l:'Tutela de urgência',p:'Redija tutela de urgência (art. 300 CPC): fumus boni iuris, periculum in mora, reversibilidade, para: '},
+      {ic:'📋',l:'Parecer completo',p:'Elabore parecer completo: EMENTA, I — DA CONSULTA, II — DO RELATÓRIO, III — DA FUNDAMENTAÇÃO, IV — DA CONCLUSÃO, notas ¹²³, sobre: '},
+      {ic:'🛡️',l:'Contestação (upload PI)',p:'Você recebeu uma PETIÇÃO INICIAL. Analise todos os pedidos, fundamentos e vícios. Elabore CONTESTAÇÃO COMPLETA: I — PRELIMINARES, II — IMPUGNAÇÃO DOS FATOS, III — DO MÉRITO, IV — DOS PEDIDOS. ② NOTAS DE RODAPÉ mínimo 15 notas.'},
+      {ic:'⛏️',l:'Mineração de julgado',p:'Você recebeu um ACÓRDÃO. Extraia: ① RATIO DECIDENDI, ② OBITER DICTA, ③ VOTOS VENCIDOS, ④ LACUNAS NÃO ENFRENTADAS, ⑤ DISTINGUISHING, ⑥ TESES EXCLUSIVAS PARA APROVEITAMENTO ESTRATÉGICO. ② NOTAS DE RODAPÉ.'},
+    ]},
+  bib:{id:'bib',icon:'📖',label:'JurBiblioteca',cor:'#c49a2a',desc:'Doutrina · ABNT · 78 obras'},
+  jur:{id:'jur',icon:'🏛️',label:'JurJurisprudência',cor:'#0369a1',desc:'STF · STJ · TST · Súmulas'},
+};
+
+// ── KEY SETUP ─────────────────────────────────────────────────────
+
+// ── CHAT TOOL (reusável por obra, peça, financeiro) ───────────────
+function ChatTool({tool}){
+  const[msgs,setMsgs]=useState([]);
+  const[input,setInput]=useState('');
+  const[loading,setLoading]=useState(false);
+  const[exportSt,setExportSt]=useState('idle');
+  const[doc,setDoc]=useState(null);
+  const[showUpload,setShowUpload]=useState(false);
+  const[uploadErr,setUploadErr]=useState('');
+  const bottomRef=useRef(null);
+  const taRef=useRef(null);
+  const fileRef=useRef(null);
+
+  useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:'smooth'});},[msgs,loading]);
+  useEffect(()=>{if(taRef.current){taRef.current.style.height='auto';taRef.current.style.height=Math.min(taRef.current.scrollHeight,160)+'px';}},[input]);
+
+  const handleFile=async(file)=>{
+    if(!file)return;
+    if(file.size>30*1024*1024){setUploadErr('Arquivo muito grande (máx. 30MB).');return;}
+    setUploadErr('');
+    const ext=file.name.split('.').pop().toLowerCase();
+    if(ext==='pdf'){
+      const r=new FileReader();r.onload=e=>{setDoc({tipo:'pdf',base64:e.target.result.split(',')[1],nome:file.name});setShowUpload(false);};r.readAsDataURL(file);
+    }else if(['docx','doc'].includes(ext)){
+      const r=new FileReader();r.onload=async e=>{
+        try{const x=await mammoth.extractRawText({arrayBuffer:e.target.result});setDoc({tipo:'docx',texto:x.value,nome:file.name});setShowUpload(false);}
+        catch{setUploadErr('Erro ao ler o DOCX.');}
+      };r.readAsArrayBuffer(file);
+    }else setUploadErr('Use PDF ou DOCX.');
+  };
+
+  const enviar=useCallback(async(texto)=>{
+    const prompt=texto||input.trim();
+    if(!prompt&&!doc)return;
+    if(loading)return;
+    setInput('');
+    let apiContent=prompt;
+    if(doc){
+      const instrucao=prompt||`Analise este documento conforme sua especialidade.`;
+      if(doc.tipo==='pdf')apiContent=[{type:'document',source:{type:'base64',media_type:'application/pdf',data:doc.base64}},{type:'text',text:instrucao}];
+      else apiContent=[{type:'text',text:`DOCUMENTO (${doc.nome}):\n\n${doc.texto.slice(0,30000)}\n\n---\n\n${instrucao}`}];
+    }
+    const novasMsgs=[...msgs,{role:'user',content:typeof apiContent==='string'?apiContent:prompt,docNome:doc?.nome,_api:apiContent}];
+    setMsgs(novasMsgs);
+    await withLoadingMsg(async () => {
+      const data=await callAI({model:'claude-sonnet-4-20250514',max_tokens:8000,system:tool.system||'Você é um assistente jurídico especializado.',messages:novasMsgs.map(m=>({role:m.role,content:m._api||m.content}))});
+      const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
+      setMsgs(prev=>[...prev,{role:'assistant',content:txt||'Sem resposta.'}]);
+      setDoc(null);
+    }, setLoading, setMsgs);
+  },[msgs,input,loading,tool,doc]);
+
+  const exportDocx=async()=>{
+    const conteudo=msgs.filter(m=>m.role==='assistant').map(m=>m.content).join('\n\n');
+    if(!conteudo.trim())return;
+    setTimeout(()=>{
+      withExport(async () => {
+        const lines=conteudo.split('\n');const noteIdx=lines.findIndex(l=>/^②?\s*NOTAS?\s*DE\s*RODAP/i.test(l.trim()));
+        const bodyLines=noteIdx>-1?lines.slice(0,noteIdx):lines;const fm={};
+        const paras=[emptyP(),emptyP()];
+        paras.push(wPara([{t:tool.label,b:false,i:true,sup:false}],{c:true,pt:10,sa:40,lv:240}));
+        paras.push(wPara([{t:tool.label,b:true,i:false,sup:false}],{c:true,pt:16,sb:40,sa:120,lv:280}));
+        paras.push(emptyP());
+        for(const line of bodyLines){
+          const raw=line.trim();if(!raw){paras.push(emptyP());continue;}
+          if(/^-{3,}$/.test(raw)){paras.push(`<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="000000"/></w:pBdr><w:spacing w:before="120" w:after="120"/></w:pPr></w:p>`);continue;}
+          if(raw===raw.toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(raw)&&raw.length>4&&raw.length<120&&!/^\d/.test(raw)&&!/^[①②③④⑤]/.test(raw)){paras.push(wPara([{t:raw,b:true,i:false,sup:false}],{c:true,pt:14,sa:300,lv:240}));continue;}
+          if(/^EMENTA_CAP:/i.test(raw)){paras.push(wPara([{t:raw.replace(/^EMENTA_CAP:\s*/i,''),b:false,i:true,sup:false}],{a:'both',pt:10,sa:0,lv:240,il:1440,ir:1440}));continue;}
+          if(/^\*\*[^*]+\*\*$/.test(raw)){paras.push(wPara([{t:raw.replace(/\*\*/g,''),b:true,i:false,sup:false}],{a:'left',pt:12,sb:300,sa:100,lv:276}));continue;}
+          if(/^>\s*/.test(raw)){paras.push(wParaWithFn(raw.replace(/^>\s*/,''),{a:'both',pt:9,sb:80,sa:80,lv:240,il:709,ir:709},fm));continue;}
+          const rc=raw.replace(/\*\*/g,'').trim();if(/^[①②③④⑤]/.test(rc)||/^NOTAS?\s*DE\s*RODAP/i.test(rc))continue;
+          if((SUP_CHARS.includes(raw[0])||/^\d{1,2}[.\)]\s/.test(raw))&&raw.length<400){const p=parseNoteNum(raw);if(p&&p.text.length>10)continue;}
+          paras.push(wParaWithFn(raw,{a:'both',pt:12,in:709,sb:0,sa:60,lv:276},fm));
+        }
+        const fnE=Object.entries(fm).sort((a,b)=>Number(a[0])-Number(b[0]));
+        const slug=tool.label.replace(/[^a-zA-Z0-9]/g,'_').slice(0,20);
+        docxDownload(paras,tool.label,fnE,slug+'_'+new Date().toISOString().slice(0,10)+'.docx');
+        setExportSt('done');setTimeout(()=>setExportSt('idle'),5000);
+      }, setExportSt, 5000);
+    },50);
+  };
+
+  const hasContent=msgs.some(m=>m.role==='assistant');
+  const C={bg:'#f5f4f1',white:'white',nav:'#12192e',gold:'#c49a2a',border:'#ddd9d0',textPri:'#111',textSec:'#555',textTer:'#999'};
+
+  return(
+    <div style={{height:'100%',display:'flex',flexDirection:'column',background:C.bg,overflow:'hidden'}}>
+      {/* Top */}
+      <div style={{background:C.nav,padding:'0 18px',display:'flex',alignItems:'center',gap:10,height:48,flexShrink:0}}>
+        <span style={{color:C.gold,fontFamily:'monospace',fontWeight:700,fontSize:13,letterSpacing:'.1em'}}>{tool.label.toUpperCase()}</span>
+        <span style={{background:`${C.gold}25`,border:`1px solid ${C.gold}55`,color:C.gold,fontSize:9,padding:'2px 8px',borderRadius:2,fontFamily:'monospace'}}>{tool.desc}</span>
+        <div style={{marginLeft:'auto',display:'flex',gap:8}}>
+          {hasContent&&<button onClick={exportDocx} disabled={exportSt==='loading'} style={{padding:'5px 14px',background:exportSt==='done'?'#166534':tool.cor,color:'white',border:'none',borderRadius:3,fontSize:11,fontFamily:'monospace',cursor:'pointer'}}>{exportSt==='loading'?'⏳...':exportSt==='done'?'✅ gerado!':'⬇ .docx'}</button>}
+          {msgs.length>0&&<button onClick={()=>{if(confirm('Limpar conversa?'))setMsgs([]);setDoc(null);}} style={{padding:'5px 10px',background:'transparent',color:'rgba(255,255,255,.3)',border:'1px solid rgba(255,255,255,.1)',borderRadius:3,fontSize:10,fontFamily:'monospace',cursor:'pointer'}}>limpar</button>}
+        </div>
+      </div>
+      <div style={{flex:1,display:'flex',overflow:'hidden'}}>
+        {/* Sidebar */}
+        {tool.acoes&&(
+          <div style={{width:220,background:C.white,borderRight:`1px solid ${C.border}`,display:'flex',flexDirection:'column',overflow:'hidden',flexShrink:0}}>
+            <div style={{flex:1,overflowY:'auto',padding:'10px 12px'}}>
+              <div style={{fontSize:9,fontFamily:'monospace',color:C.textTer,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:8,marginTop:4}}>Ações rápidas</div>
+              {tool.acoes.map((a,i)=>(
+                <button key={i} onClick={()=>enviar(a.p)} style={{display:'flex',alignItems:'flex-start',gap:7,width:'100%',padding:'7px 9px',marginBottom:4,border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',textAlign:'left',background:'transparent',color:C.textSec,fontSize:11,fontFamily:'Georgia,serif',lineHeight:1.4,transition:'all .12s'}}
+                  onMouseOver={e=>{e.currentTarget.style.background=`${tool.cor}10`;e.currentTarget.style.color=C.textPri;}}
+                  onMouseOut={e=>{e.currentTarget.style.background='transparent';e.currentTarget.style.color=C.textSec;}}>
+                  <span style={{flexShrink:0}}>{a.ic}</span><span>{a.l}</span>
+                </button>
+              ))}
+              <div style={{marginTop:10,fontSize:9,fontFamily:'monospace',color:C.textTer,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:6}}>Documento (PDF/DOCX)</div>
+              <button onClick={()=>setShowUpload(v=>!v)} style={{width:'100%',padding:'8px',border:`1px solid ${doc?tool.cor:C.border}`,borderRadius:4,cursor:'pointer',background:doc?`${tool.cor}10`:'transparent',color:doc?tool.cor:C.textSec,fontSize:11,fontFamily:'monospace',display:'flex',alignItems:'center',gap:6}}>
+                📎 {doc?doc.nome.slice(0,18)+'...':'Carregar arquivo'}
+              </button>
+              {doc&&<button onClick={()=>setDoc(null)} style={{width:'100%',marginTop:4,padding:'4px',border:'1px solid #fca5a5',borderRadius:4,cursor:'pointer',background:'transparent',color:'#991b1b',fontSize:10,fontFamily:'monospace'}}>× Remover documento</button>}
+            </div>
+          </div>
+        )}
+        {/* Chat */}
+        <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          {showUpload&&(
+            <div style={{background:C.white,borderBottom:`1px solid ${C.border}`,padding:'12px 18px',flexShrink:0}}>
+              <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><span style={{fontSize:12,fontWeight:500}}>Carregar PDF ou DOCX</span><button onClick={()=>setShowUpload(false)} style={{background:'none',border:'none',cursor:'pointer',fontSize:16,color:C.textTer}}>×</button></div>
+              <div onDrop={e=>{e.preventDefault();handleFile(e.dataTransfer.files[0]);}} onDragOver={e=>e.preventDefault()} onClick={()=>fileRef.current?.click()} style={{border:`2px dashed ${C.border}`,borderRadius:8,padding:'16px',textAlign:'center',cursor:'pointer',background:'#faf8f4'}}>
+                <div style={{fontSize:24,marginBottom:4}}>📄</div><div style={{fontSize:12,color:C.textSec}}>Arraste ou clique · PDF ou DOCX · máx. 30MB</div>
+              </div>
+              <input ref={fileRef} type="file" accept=".pdf,.docx,.doc" style={{display:'none'}} onChange={e=>handleFile(e.target.files[0])}/>
+              {uploadErr&&<div style={{marginTop:6,fontSize:11,color:'#991b1b',fontFamily:'monospace'}}>❌ {uploadErr}</div>}
+            </div>
+          )}
+          <div style={{flex:1,overflowY:'auto',padding:'20px 24px'}}>
+            {msgs.length===0&&(
+              <div style={{maxWidth:520,margin:'40px auto 0',textAlign:'center'}}>
+                <div style={{fontSize:38,marginBottom:10}}>{tool.icon}</div>
+                <div style={{fontSize:18,fontWeight:700,marginBottom:6}}>{tool.label}</div>
+                <div style={{fontSize:13,color:C.textSec,lineHeight:1.7,marginBottom:16}}>{tool.desc}</div>
+                {tool.acoes&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,textAlign:'left'}}>
+                  {tool.acoes.slice(0,4).map((a,i)=>(
+                    <button key={i} onClick={()=>enviar(a.p)} style={{padding:'10px 12px',border:`1px solid ${C.border}`,borderRadius:6,cursor:'pointer',background:C.white,textAlign:'left',fontSize:12,color:C.textSec,fontFamily:'Georgia,serif',lineHeight:1.4}} onMouseOver={e=>e.currentTarget.style.borderColor=tool.cor} onMouseOut={e=>e.currentTarget.style.borderColor=C.border}>{a.ic} {a.l}</button>
+                  ))}
+                </div>}
+              </div>
+            )}
+            {msgs.map((m,i)=>(
+              <div key={i} style={{marginBottom:20,display:'flex',gap:12,justifyContent:m.role==='user'?'flex-end':'flex-start'}}>
+                {m.role==='assistant'&&<div style={{width:28,height:28,background:tool.cor,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0,marginTop:2}}>{tool.icon}</div>}
+                <div style={{maxWidth:'82%'}}>
+                  {m.docNome&&<div style={{display:'flex',marginBottom:4,justifyContent:'flex-end'}}><span style={{fontSize:10,fontFamily:'monospace',padding:'2px 8px',background:`${tool.cor}15`,border:`1px solid ${tool.cor}30`,borderRadius:10,color:tool.cor}}>📄 {m.docNome.slice(0,20)}</span></div>}
+                  <div style={{padding:'12px 16px',borderRadius:m.role==='user'?'16px 4px 16px 16px':'4px 16px 16px 16px',background:m.role==='user'?C.nav:C.white,color:m.role==='user'?'white':C.textPri,border:m.role==='assistant'?`1px solid ${C.border}`:'none',fontSize:13,lineHeight:1.75}}>
+                    {m.role==='assistant'?<RichText content={m.content}/>:<span style={{fontFamily:'Georgia,serif',fontSize:13}}>{m.content}</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {loading&&<div style={{display:'flex',gap:12,marginBottom:20}}><div style={{width:28,height:28,background:tool.cor,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,flexShrink:0}}>{tool.icon}</div><div style={{padding:'12px 16px',background:C.white,border:`1px solid ${C.border}`,borderRadius:'4px 16px 16px 16px',display:'flex',gap:6,alignItems:'center'}}>{[0,1,2].map(j=><div key={j} style={{width:7,height:7,borderRadius:'50%',background:tool.cor,opacity:.5,animation:`bounce 1.2s ease-in-out ${j*.2}s infinite`}}/>)}</div></div>}
+            <div ref={bottomRef}/>
+          </div>
+          <div style={{borderTop:`1px solid ${C.border}`,background:C.white,padding:'12px 18px'}}>
+            <div style={{display:'flex',gap:8,alignItems:'flex-end',maxWidth:900,margin:'0 auto'}}>
+              <textarea ref={taRef} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();enviar();}}} placeholder={doc?'Instrução adicional... (ou envie sem texto)':'Digite sua solicitação... (Enter para enviar)'} rows={1}
+                style={{flex:1,padding:'10px 14px',border:`1px solid ${C.border}`,borderRadius:8,fontFamily:'Georgia,serif',fontSize:13,resize:'none',outline:'none',lineHeight:1.6,overflow:'hidden',background:C.bg,color:C.textPri}}
+                onFocus={e=>e.target.style.borderColor=tool.cor} onBlur={e=>e.target.style.borderColor=C.border}/>
+              <button onClick={()=>enviar()} disabled={loading||(!input.trim()&&!doc)} style={{padding:'10px 18px',background:loading||(!input.trim()&&!doc)?'#ccc':tool.cor,color:'white',border:'none',borderRadius:8,cursor:'pointer',fontSize:16,flexShrink:0,height:40}}>↑</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── HUB TOOL v1 (JurHub integrado) ───────────────────────────────
+// Utilitários de Storage API (window.storage — Claude artifacts)
+async function storageGet(key){
+  try{const r=await window.storage?.get(key);return r?.value?JSON.parse(r.value):null;}
+  catch{return null;}
+}
+async function storageSet(key,val){
+  try{await window.storage?.set(key,JSON.stringify(val));return true;}
+  catch{return false;}
+}
+
+// Chaves de Storage
+const K_PROJ='jura-obra-project-v1';
+const K_JUR='jura-jur-cache';
+const K_BIB='jura-bib-cache';
+const K_CAPS='jura-chapters-cache';
+const PROJ_DEF={nome:'',area:'',autores:'',capsOk:[],capsProx:[]};
+
+// Artefatos do ecossistema
+const ARTEFATOS=[
+  {key:'obra',icon:'📚',label:'JurObra',cor:'#8b1a1a',desc:'Livros · Tratados · Apostilas · Dissertações',badge:'v1',
+    quando:'Quando for escrever ou continuar capítulos de uma obra longa. O projeto e as citações salvas aqui já estarão disponíveis na sidebar.',
+    dica:'Abra o JurObra → o projeto é carregado automaticamente da Storage API → clique no botão do capítulo na sidebar para disparar a geração.'},
+  {key:'peca',icon:'⚖️',label:'JurPeça',cor:'#7c3aed',desc:'Petição · Parecer · Ementa · Contrato',badge:'v2 · docs',
+    quando:'Quando for redigir uma peça avulsa ou analisar um documento. Aceita PDF e DOCX.',
+    dica:'📎 Use o ícone de clipe para carregar a Petição Inicial → selecione o modo Contestação → envie sem digitar nada → a IA lê e redige a defesa completa.'},
+  {key:'jur',icon:'🏛️',label:'JurJurisprudência',cor:'#0369a1',desc:'STF · STJ · TST · Súmulas · busca IA',badge:'v1',
+    quando:'Quando precisar de jurisprudência para fundamentar uma peça ou capítulo. Cole os resultados no Banco de Citações — ficam salvos entre sessões.',
+    dica:'Pesquise → clique Copiar inline → cole no Banco de Citações → o JurObra lê automaticamente.'},
+  {key:'bib',icon:'📖',label:'JurBiblioteca',cor:'#c49a2a',desc:'32 clássicos offline · busca IA doutrina recente',badge:'v1',
+    quando:'Quando precisar de referências doutrinárias. Cole as notas de rodapé no Banco de Referências abaixo.',
+    dica:'Busque → Copiar nota → cole no Banco de Referências → disponível para o JurObra na próxima sessão.'},
+  {key:'docx',icon:'⚙️',label:'JurDocx Engine',cor:'#374151',desc:'Motor ZIP/XML Word · testes de export',badge:'v1',
+    quando:'Para testar o motor de exportação isoladamente ou gerar um .docx a partir de texto avulso.',
+    dica:'Cole qualquer texto markdown jurídico e clique Gerar .docx — útil para validar formatação antes de usar no JurObra.'},
+];
+
+function HubTool(){
+  const[proj,setProj]=useState(PROJ_DEF);
+  const[jurCache,setJurCache]=useState([]);
+  const[bibCache,setBibCache]=useState([]);
+  const[capsTexto,setCapsTexto]=useState('');
+  const[jurInput,setJurInput]=useState('');
+  const[bibInput,setBibInput]=useState('');
+  const[loading,setLoading]=useState(true);
+  const[saved,setSaved]=useState({});
+  const[exportStatus,setExportStatus]=useState('idle');
+  const[aba,setAba]=useState('dashboard');
+  const[artInfo,setArtInfo]=useState(null);
+  const[editProj,setEditProj]=useState(false);
+  const[projEdit,setProjEdit]=useState(PROJ_DEF);
+  const[copiedJur,setCopiedJur]=useState(null);
+  const[copiedBib,setCopiedBib]=useState(null);
+
+  // Carregar tudo da Storage API (com fallback para localStorage legado)
+  useEffect(()=>{
+    (async()=>{
+      const[p,j,b,c]=await Promise.all([
+        storageGet(K_PROJ),storageGet(K_JUR),storageGet(K_BIB),storageGet(K_CAPS)
+      ]);
+      // Fallback: tenta localStorage se Storage API não tiver dados
+      const projFallback=p||ls('je-proj',null);
+      const jurFallback=j||ls('jura-jur-cache',[]);
+      const bibFallback=b||ls('jura-bib-cache',[]);
+      const capsFallback=c||(typeof ls('jura-chapters-cache','') === 'string' ? ls('jura-chapters-cache','') : '');
+      if(projFallback)setProj(projFallback);
+      if(jurFallback)setJurCache(Array.isArray(jurFallback)?jurFallback:[]);
+      if(bibFallback)setBibCache(Array.isArray(bibFallback)?bibFallback:[]);
+      if(capsFallback)setCapsTexto(typeof capsFallback==='string'?capsFallback:'');
+      setLoading(false);
+    })();
+  },[]);
+
+  const salvarProj=async(p)=>{
+    setProj(p);setEditProj(false);
+    lsSet('je-proj',p);// legado
+    const ok=await storageSet(K_PROJ,p);
+    setSaved(s=>({...s,proj:ok?'ok':'err'}));
+    setTimeout(()=>setSaved(s=>({...s,proj:null})),3000);
+  };
+
+  const adicionarJur=async()=>{
+    const txt=jurInput.trim();if(!txt)return;
+    const nova=[...jurCache,{id:Date.now(),texto:txt,ts:new Date().toLocaleDateString('pt-BR')}];
+    setJurCache(nova);setJurInput('');
+    lsSet('jura-jur-cache',nova);// legado
+    await storageSet(K_JUR,nova);
+    setSaved(s=>({...s,jur:'ok'}));setTimeout(()=>setSaved(s=>({...s,jur:null})),2500);
+  };
+
+  const removerJur=async(id)=>{
+    const nova=jurCache.filter(x=>x.id!==id);setJurCache(nova);
+    lsSet('jura-jur-cache',nova);
+    await storageSet(K_JUR,nova);
+  };
+
+  const adicionarBib=async()=>{
+    const txt=bibInput.trim();if(!txt)return;
+    const nova=[...bibCache,{id:Date.now(),texto:txt,ts:new Date().toLocaleDateString('pt-BR')}];
+    setBibCache(nova);setBibInput('');
+    lsSet('jura-bib-cache',nova);// legado
+    await storageSet(K_BIB,nova);
+    setSaved(s=>({...s,bib:'ok'}));setTimeout(()=>setSaved(s=>({...s,bib:null})),2500);
+  };
+
+  const removerBib=async(id)=>{
+    const nova=bibCache.filter(x=>x.id!==id);setBibCache(nova);
+    lsSet('jura-bib-cache',nova);
+    await storageSet(K_BIB,nova);
+  };
+
+  const salvarCaps=useCallback(async(txt)=>{
+    setCapsTexto(txt);
+    lsSet('jura-chapters-cache',txt);// legado
+    await storageSet(K_CAPS,txt);
+  },[]);
+
+  const copiarTodosJur=()=>{
+    const txt=jurCache.map(j=>j.texto).join('\n\n');
+    navigator.clipboard?.writeText(txt);
+    setCopiedJur('all');setTimeout(()=>setCopiedJur(null),2500);
+  };
+
+  const copiarTodosBib=()=>{
+    const txt=bibCache.map(b=>b.texto).join('\n');
+    navigator.clipboard?.writeText(txt);
+    setCopiedBib('all');setTimeout(()=>setCopiedBib(null),2500);
+  };
+
+  const exportarObra=async()=>{
+    if(!capsTexto.trim())return;
+    setTimeout(()=>{
+      withExport(async () => {
+        const lines=capsTexto.split('\n');const noteIdx=lines.findIndex(l=>/^②?\s*NOTAS?\s*DE\s*RODAP/i.test(l.trim()));
+        const bodyLines=noteIdx>-1?lines.slice(0,noteIdx):lines;const fm={};
+        const paras=[emptyP(),emptyP(),emptyP()];
+        if(proj.area)paras.push(wPara([{t:proj.area,b:false,i:true,sup:false}],{c:true,pt:11,sa:60,lv:240}));
+        paras.push(wPara([{t:proj.nome||'Obra Jurídica',b:true,i:false,sup:false}],{c:true,pt:22,sb:60,sa:160,lv:280}));
+        if(proj.autores)paras.push(wPara([{t:proj.autores,b:false,i:false,sup:false}],{c:true,pt:11,sa:40,lv:240}));
+        paras.push(emptyP(),emptyP());
+        const allCaps=[...proj.capsOk.map(c=>({label:c,ok:true})),...proj.capsProx.map(c=>({label:`Cap. ${c.num} — ${c.titulo}`,ok:false}))];
+        if(allCaps.length>0){
+          paras.push(wPara([{t:'SUMÁRIO',b:true,i:false,sup:false}],{c:true,pt:14,sb:80,sa:200,lv:240}));
+          for(const c of allCaps)paras.push(wPara([{t:(c.ok?'✓  ':'')+c.label,b:false,i:false,sup:false}],{a:'left',pt:11,sb:60,sa:40,lv:240}));
+          paras.push(emptyP(),`<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>`);
+        }
+        for(const line of bodyLines){
+          const raw=line.trim();if(!raw){paras.push(emptyP());continue;}
+          if(/^-{3,}$/.test(raw)){paras.push(`<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="000000"/></w:pBdr><w:spacing w:before="120" w:after="120"/></w:pPr></w:p>`);continue;}
+          if(raw===raw.toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(raw)&&raw.length>4&&raw.length<120&&!/^\d/.test(raw)){paras.push(wPara([{t:raw,b:true,i:false,sup:false}],{c:true,pt:14,sa:360,lv:240}));continue;}
+          if(/^\*\*[^*]+\*\*$/.test(raw)){paras.push(wPara([{t:raw.replace(/\*\*/g,''),b:true,i:false,sup:false}],{a:'left',pt:12,sb:360,sa:120,lv:276}));continue;}
+          if(/^>\s*/.test(raw)){paras.push(wParaWithFn(raw.replace(/^>\s*/,''),{a:'both',pt:9,sb:80,sa:80,lv:240,il:709,ir:709},fm));continue;}
+          const rc=raw.replace(/\*\*/g,'').trim();if(/^[①②③④⑤]/.test(rc)||/^NOTAS?\s*DE\s*RODAP/i.test(rc))continue;
+          if((SUP_CHARS.includes(raw[0])||/^\d{1,2}[.\)]\s/.test(raw))&&raw.length<400){const p=parseNoteNum(raw);if(p&&p.text.length>10)continue;}
+          paras.push(wParaWithFn(raw,{a:'both',pt:12,in:709,sb:0,sa:60,lv:276},fm));
+        }
+        const fnE=Object.entries(fm).sort((a,b)=>Number(a[0])-Number(b[0]));
+        const slug=(proj.nome||'JurObra').replace(/[^a-zA-Z0-9]/g,'_').slice(0,30);
+        docxDownload(paras,(proj.nome||'Obra').slice(0,80),fnE,slug+'_COMPLETO_'+new Date().toISOString().slice(0,10)+'.docx');
+        setExportStatus('done');setTimeout(()=>setExportStatus('idle'),6000);
+      }, setExportStatus, 6000);
+    },50);
+  };
+
+  const prog=proj.capsOk.length,total=proj.capsOk.length+proj.capsProx.length;
+  const C={bg:'#f5f4f1',white:'white',nav:'#12192e',gold:'#c49a2a',border:'#ddd9d0',textPri:'#111',textSec:'#555',textTer:'#999',green:'#166534'};
+  const inp={width:'100%',padding:'8px 12px',border:`1px solid ${C.border}`,borderRadius:4,fontFamily:'Georgia,serif',fontSize:13,color:C.textPri,background:C.white,outline:'none',boxSizing:'border-box'};
+  const lbl={fontSize:9,fontFamily:'monospace',textTransform:'uppercase',letterSpacing:'.07em',color:C.textTer,display:'block',marginBottom:5};
+  const btn=(cor='#374151')=>({padding:'6px 16px',background:cor,color:'white',border:'none',borderRadius:4,cursor:'pointer',fontSize:12,fontFamily:'monospace',fontWeight:700,transition:'opacity .15s'});
+
+  if(loading)return(
+    <div style={{height:'100%',display:'flex',alignItems:'center',justifyContent:'center',background:C.bg}}>
+      <div style={{textAlign:'center'}}>
+        <div style={{fontSize:32,marginBottom:12}}>⚖️</div>
+        <div style={{fontSize:13,color:C.textSec,fontFamily:'monospace'}}>carregando estado do projeto...</div>
+      </div>
+    </div>
+  );
+
+  return(
+    <div style={{height:'100%',display:'flex',flexDirection:'column',background:C.bg,overflow:'hidden'}}>
+
+      {/* TOP BAR */}
+      <div style={{background:C.nav,padding:'0 24px',display:'flex',alignItems:'center',gap:12,height:52,flexShrink:0,borderBottom:'1px solid #0a1020'}}>
+        <span style={{color:C.gold,fontFamily:'monospace',fontWeight:700,fontSize:13,letterSpacing:'.1em'}}>JURHUB</span>
+        <span style={{background:`${C.gold}20`,border:`1px solid ${C.gold}40`,color:C.gold,fontSize:9,padding:'2px 8px',borderRadius:2,fontFamily:'monospace'}}>v1 · centro de controle</span>
+        <div style={{marginLeft:'auto',display:'flex',gap:6}}>
+          {['dashboard','bancos','export','artefatos'].map(id=>(
+            <button key={id} onClick={()=>setAba(id)} style={{padding:'6px 14px',background:aba===id?'rgba(196,154,42,.2)':'transparent',color:aba===id?C.gold:'rgba(255,255,255,.45)',border:'none',borderRadius:4,cursor:'pointer',fontSize:11,fontFamily:'monospace',letterSpacing:'.05em',textTransform:'uppercase',transition:'all .15s'}}>
+              {id}
+            </button>
+          ))}
+        </div>
+        <button onClick={()=>{setProjEdit({...proj});setEditProj(true);}} style={{padding:'5px 12px',background:'rgba(255,255,255,.08)',color:'rgba(255,255,255,.55)',border:'1px solid rgba(255,255,255,.12)',borderRadius:3,fontSize:11,fontFamily:'monospace',cursor:'pointer'}}>✏️ Projeto</button>
+      </div>
+
+      <div style={{flex:1,overflowY:'auto',padding:'20px 24px'}}>
+
+        {/* ── ABA DASHBOARD ── */}
+        {aba==='dashboard'&&(
+          <>
+            {/* Projeto */}
+            <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden',marginBottom:16}}>
+              <div style={{background:'#f0ebe0',borderBottom:`1px solid ${C.border}`,padding:'10px 20px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div>
+                  <span style={{fontSize:10,fontFamily:'monospace',color:C.textTer,textTransform:'uppercase',letterSpacing:'.07em'}}>Projeto ativo</span>
+                  {saved.proj==='ok'&&<span style={{marginLeft:8,fontSize:10,color:C.green,fontFamily:'monospace'}}>● salvo</span>}
+                </div>
+                <button onClick={()=>{setProjEdit({...proj});setEditProj(true);}} style={{...btn(C.nav),padding:'5px 14px'}}>✏️ Editar projeto</button>
+              </div>
+              {!proj.nome?(
+                <div style={{padding:'32px 20px',textAlign:'center'}}>
+                  <div style={{fontSize:32,marginBottom:10}}>📚</div>
+                  <div style={{fontSize:14,color:C.textSec,marginBottom:16}}>Nenhum projeto configurado ainda.</div>
+                  <button onClick={()=>{setProjEdit({...PROJ_DEF});setEditProj(true);}} style={{...btn(C.nav),padding:'10px 24px',fontSize:13}}>⚙️ Configurar primeiro projeto</button>
+                </div>
+              ):(
+                <div style={{padding:'20px',display:'grid',gridTemplateColumns:'1fr 1fr',gap:20}}>
+                  <div>
+                    <div style={{fontSize:11,color:C.textTer,fontFamily:'monospace',marginBottom:4}}>OBRA</div>
+                    <div style={{fontSize:20,fontWeight:700,color:C.textPri,lineHeight:1.2,marginBottom:6}}>{proj.nome}</div>
+                    {proj.area&&<div style={{fontSize:12,color:C.textSec,marginBottom:3}}>📍 {proj.area}</div>}
+                    {proj.autores&&<div style={{fontSize:12,color:C.textSec}}>✍️ {proj.autores}</div>}
+                  </div>
+                  <div>
+                    <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
+                      <span style={{fontSize:10,fontFamily:'monospace',color:C.textTer,textTransform:'uppercase'}}>Progresso</span>
+                      <span style={{fontSize:12,fontWeight:700,color:C.gold,fontFamily:'monospace'}}>{prog}/{total} capítulos</span>
+                    </div>
+                    <div style={{height:8,background:'#ede8df',borderRadius:4,marginBottom:12,overflow:'hidden'}}>
+                      <div style={{height:'100%',background:C.gold,borderRadius:4,width:total>0?`${(prog/total)*100}%`:'0%',transition:'width .5s'}}/>
+                    </div>
+                    {proj.capsOk.map((c,i)=>(
+                      <div key={i} style={{fontSize:11,color:C.green,fontFamily:'monospace',padding:'2px 0',display:'flex',gap:6}}>
+                        <span>✓</span><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{c.slice(0,50)}</span>
+                      </div>
+                    ))}
+                    {proj.capsProx.length>0&&(
+                      <div style={{marginTop:6}}>
+                        <div style={{fontSize:10,fontFamily:'monospace',color:C.textTer,marginBottom:4,textTransform:'uppercase',letterSpacing:'.05em'}}>Próximos</div>
+                        {proj.capsProx.map((c,i)=>(
+                          <div key={i} style={{fontSize:11,color:C.textSec,fontFamily:'monospace',padding:'2px 0',display:'flex',gap:6}}>
+                            <span style={{color:C.gold}}>→</span><span>Cap. {c.num} — {c.titulo.slice(0,40)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Status dos bancos */}
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:12,marginBottom:16}}>
+              {[
+                {label:'Citações salvas',count:jurCache.length,icon:'⚖️',cor:'#0369a1'},
+                {label:'Referências salvas',count:bibCache.length,icon:'📖',cor:'#c49a2a'},
+                {label:'Palavras no export',count:capsTexto.split(/\s+/).filter(Boolean).length,icon:'📄',cor:'#374151'},
+              ].map(({label,count,icon,cor})=>(
+                <div key={label} onClick={()=>setAba(label.includes('export')?'export':'bancos')} style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:'16px',cursor:'pointer',transition:'border-color .15s'}}
+                  onMouseOver={e=>e.currentTarget.style.borderColor=cor} onMouseOut={e=>e.currentTarget.style.borderColor=C.border}>
+                  <div style={{fontSize:22,marginBottom:6}}>{icon}</div>
+                  <div style={{fontSize:28,fontWeight:700,color:C.textPri,lineHeight:1}}>{count.toLocaleString('pt-BR')}</div>
+                  <div style={{fontSize:11,color:C.textSec,marginTop:4,fontFamily:'monospace'}}>{label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Fluxo */}
+            <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,padding:'16px 20px'}}>
+              <div style={{fontSize:10,fontFamily:'monospace',color:C.textTer,textTransform:'uppercase',letterSpacing:'.07em',marginBottom:12}}>Fluxo de trabalho recomendado</div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8}}>
+                {['1 Configure o projeto aqui → salvo automaticamente','2 Pesquise no JurJurisprudência → cole as citações em Bancos','3 Abra o JurObra → capítulos e citações já carregados','4 Cole os textos gerados em Export → baixe a obra completa'].map((s,i)=>(
+                  <div key={i} style={{padding:'10px 12px',background:'#f7f3ec',borderRadius:6,fontSize:11,color:C.textSec,lineHeight:1.6}}>
+                    <strong style={{color:C.nav,display:'block',marginBottom:4,fontFamily:'monospace'}}>Passo {i+1}</strong>
+                    {s.slice(2)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* ── ABA BANCOS ── */}
+        {aba==='bancos'&&(
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
+
+            {/* Banco de Citações */}
+            <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+              <div style={{background:'#eff6ff',borderBottom:`1px solid ${C.border}`,padding:'10px 16px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div>
+                  <span style={{fontSize:11,fontWeight:700,color:'#0369a1'}}>⚖️ Banco de Citações</span>
+                  <span style={{fontSize:10,fontFamily:'monospace',color:'#0369a1',marginLeft:8}}>{jurCache.length} salvas</span>
+                  {saved.jur==='ok'&&<span style={{fontSize:10,color:C.green,fontFamily:'monospace',marginLeft:8}}>● salvo</span>}
+                </div>
+                {jurCache.length>0&&(
+                  <button onClick={copiarTodosJur} style={{...btn('#0369a1'),padding:'4px 12px',fontSize:10}}>
+                    {copiedJur==='all'?'✅ copiado!':'📋 Copiar todas'}
+                  </button>
+                )}
+              </div>
+              <div style={{padding:'14px'}}>
+                <div style={{fontSize:10,fontFamily:'monospace',color:C.textTer,marginBottom:6,lineHeight:1.6}}>
+                  Cole aqui citações do <strong>JurJurisprudência</strong>. Ficam salvas entre sessões e são lidas pelo JurObra.
+                </div>
+                <textarea value={jurInput} onChange={e=>setJurInput(e.target.value)}
+                  placeholder={'Cole a citação inline ou nota de rodapé...\nEx: o STJ, REsp 1.864.382/SP, Rel. Min. Nancy Andrighi, 3ª T., j. 15.06.2021, decidiu que...'}
+                  style={{...inp,minHeight:80,resize:'vertical',lineHeight:1.6,fontSize:12}}/>
+                <button onClick={adicionarJur} disabled={!jurInput.trim()} style={{...btn('#0369a1'),marginTop:8,width:'100%',opacity:jurInput.trim()?1:.4}}>+ Adicionar citação</button>
+              </div>
+              <div style={{borderTop:`1px solid ${C.border}`,maxHeight:320,overflowY:'auto'}}>
+                {jurCache.length===0?(
+                  <div style={{padding:'24px',textAlign:'center',color:C.textTer,fontSize:12}}>Nenhuma citação salva ainda</div>
+                ):jurCache.map((j,i)=>(
+                  <div key={j.id} style={{padding:'10px 14px',borderBottom:i<jurCache.length-1?`1px solid ${C.border}`:'none',display:'flex',gap:8,alignItems:'flex-start'}}>
+                    <span style={{fontSize:10,fontFamily:'monospace',color:C.textTer,flexShrink:0,marginTop:2}}>{i+1}.</span>
+                    <div style={{flex:1,fontSize:12,color:C.textSec,lineHeight:1.6}}>{j.texto}</div>
+                    <div style={{display:'flex',gap:4,flexShrink:0}}>
+                      <button onClick={()=>{navigator.clipboard?.writeText(j.texto);setCopiedJur(j.id);setTimeout(()=>setCopiedJur(null),2000);}}
+                        style={{padding:'3px 8px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:10,fontFamily:'monospace',color:C.textSec}}>
+                        {copiedJur===j.id?'✅':'📋'}
+                      </button>
+                      <button onClick={()=>removerJur(j.id)} style={{padding:'3px 8px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:10,color:'#991b1b'}}>×</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Banco de Referências */}
+            <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+              <div style={{background:'#fffbeb',borderBottom:`1px solid ${C.border}`,padding:'10px 16px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <div>
+                  <span style={{fontSize:11,fontWeight:700,color:'#92400e'}}>📖 Banco de Referências</span>
+                  <span style={{fontSize:10,fontFamily:'monospace',color:'#92400e',marginLeft:8}}>{bibCache.length} salvas</span>
+                  {saved.bib==='ok'&&<span style={{fontSize:10,color:C.green,fontFamily:'monospace',marginLeft:8}}>● salvo</span>}
+                </div>
+                {bibCache.length>0&&(
+                  <button onClick={copiarTodosBib} style={{...btn('#92400e'),padding:'4px 12px',fontSize:10}}>
+                    {copiedBib==='all'?'✅ copiado!':'📋 Copiar todas'}
+                  </button>
+                )}
+              </div>
+              <div style={{padding:'14px'}}>
+                <div style={{fontSize:10,fontFamily:'monospace',color:C.textTer,marginBottom:6,lineHeight:1.6}}>
+                  Cole aqui notas do <strong>JurBiblioteca</strong>. Ficam salvas e são lidas pelo JurObra.
+                </div>
+                <textarea value={bibInput} onChange={e=>setBibInput(e.target.value)}
+                  placeholder={'Cole referência ABNT ou nota de rodapé...\nEx: ¹ DIDIER JR., Fredie, Curso de Direito Processual Civil, v. I, 25. ed., Salvador, JusPodivm, 2024, p. 189.'}
+                  style={{...inp,minHeight:80,resize:'vertical',lineHeight:1.6,fontSize:12}}/>
+                <button onClick={adicionarBib} disabled={!bibInput.trim()} style={{...btn('#92400e'),marginTop:8,width:'100%',opacity:bibInput.trim()?1:.4}}>+ Adicionar referência</button>
+              </div>
+              <div style={{borderTop:`1px solid ${C.border}`,maxHeight:320,overflowY:'auto'}}>
+                {bibCache.length===0?(
+                  <div style={{padding:'24px',textAlign:'center',color:C.textTer,fontSize:12}}>Nenhuma referência salva ainda</div>
+                ):bibCache.map((b,i)=>(
+                  <div key={b.id} style={{padding:'10px 14px',borderBottom:i<bibCache.length-1?`1px solid ${C.border}`:'none',display:'flex',gap:8,alignItems:'flex-start'}}>
+                    <span style={{fontSize:10,fontFamily:'monospace',color:C.textTer,flexShrink:0,marginTop:2}}>{i+1}.</span>
+                    <div style={{flex:1,fontSize:12,color:C.textSec,lineHeight:1.6,fontFamily:'monospace'}}>{b.texto}</div>
+                    <div style={{display:'flex',gap:4,flexShrink:0}}>
+                      <button onClick={()=>{navigator.clipboard?.writeText(b.texto);setCopiedBib(b.id);setTimeout(()=>setCopiedBib(null),2000);}}
+                        style={{padding:'3px 8px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:10,fontFamily:'monospace',color:C.textSec}}>
+                        {copiedBib===b.id?'✅':'📋'}
+                      </button>
+                      <button onClick={()=>removerBib(b.id)} style={{padding:'3px 8px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:10,color:'#991b1b'}}>×</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* ── ABA EXPORT ── */}
+        {aba==='export'&&(
+          <div style={{background:C.white,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
+            <div style={{background:'#f0ebe0',borderBottom:`1px solid ${C.border}`,padding:'10px 20px',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+              <div>
+                <span style={{fontSize:11,fontWeight:700,color:C.nav}}>📄 Export completo da obra</span>
+                <span style={{fontSize:10,fontFamily:'monospace',color:C.textTer,marginLeft:10}}>
+                  {capsTexto.split(/\s+/).filter(Boolean).length.toLocaleString('pt-BR')} palavras
+                </span>
+              </div>
+              <button onClick={exportarObra} disabled={exportStatus==='loading'||!capsTexto.trim()}
+                style={{...btn(exportStatus==='done'?C.green:exportStatus==='error'?'#991b1b':C.nav),padding:'7px 20px',opacity:!capsTexto.trim()?.4:1}}>
+                {exportStatus==='loading'?'⏳ gerando...':exportStatus==='done'?'✅ baixado!':exportStatus==='error'?'❌ erro':'⬇ Exportar obra completa'}
+              </button>
+            </div>
+            <div style={{padding:'16px 20px'}}>
+              <div style={{fontSize:11,color:C.textSec,lineHeight:1.7,marginBottom:12,padding:'10px 14px',background:'#f7f3ec',borderRadius:6,borderLeft:`3px solid ${C.gold}`}}>
+                <strong style={{color:C.textPri}}>Como usar:</strong> Cole aqui todos os capítulos gerados pelo JurObra, em ordem. O Hub gera um único .docx com
+                <strong style={{color:C.textPri}}> capa + sumário (com ✓ nos capítulos concluídos) + corpo completo + footnotes reais</strong>.
+                Os dados do projeto ({proj.nome||'configure o projeto primeiro'}) são usados na capa automaticamente.
+              </div>
+              <textarea value={capsTexto} onChange={e=>salvarCaps(e.target.value)}
+                placeholder={'Cole aqui os capítulos em ordem — gerados pelo JurObra:\n\nCapítulo I\n\nA JURISDIÇÃO E SEUS FUNDAMENTOS\n\n[...texto do capítulo...]\n\n② NOTAS DE RODAPÉ\n¹ Nota...\n\n---\n\nCapítulo II\n\n[...texto do segundo capítulo...]'}
+                style={{...inp,minHeight:420,resize:'vertical',lineHeight:1.75,fontSize:12,fontFamily:'Georgia,serif'}}/>
+              <div style={{display:'flex',gap:8,marginTop:10}}>
+                <button onClick={()=>salvarCaps('')} style={{padding:'6px 14px',background:'transparent',border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:11,fontFamily:'monospace',color:C.textTer}}>🗑 Limpar</button>
+                <div style={{flex:1}}/>
+                <div style={{fontSize:11,fontFamily:'monospace',color:C.textTer,display:'flex',alignItems:'center'}}>auto-salvo · permanece entre sessões</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── ABA ARTEFATOS ── */}
+        {aba==='artefatos'&&(
+          <div>
+            <div style={{fontSize:13,color:C.textSec,lineHeight:1.7,marginBottom:16}}>
+              Guia de uso de cada artefato — quando abrir cada um e como integrá-los.
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              {ARTEFATOS.map(a=>(
+                <div key={a.key} onClick={()=>setArtInfo(artInfo?.key===a.key?null:a)}
+                  style={{background:C.white,border:`1.5px solid ${artInfo?.key===a.key?a.cor:C.border}`,borderRadius:8,padding:'16px',cursor:'pointer',transition:'all .15s'}}>
+                  <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+                    <div style={{width:36,height:36,background:`${a.cor}15`,borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,flexShrink:0}}>{a.icon}</div>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:700,color:C.textPri}}>{a.label}</div>
+                      <div style={{fontSize:10,fontFamily:'monospace',color:a.cor}}>{a.badge}</div>
+                    </div>
+                  </div>
+                  <div style={{fontSize:12,color:C.textSec,marginBottom:8}}>{a.desc}</div>
+                  {artInfo?.key===a.key&&(
+                    <div style={{borderTop:`1px solid ${C.border}`,paddingTop:10,marginTop:4}}>
+                      <div style={{fontSize:11,fontWeight:700,color:C.nav,marginBottom:4}}>Quando usar</div>
+                      <div style={{fontSize:11,color:C.textSec,lineHeight:1.7,marginBottom:10}}>{a.quando}</div>
+                      <div style={{fontSize:11,fontWeight:700,color:a.cor,marginBottom:4}}>💡 Dica</div>
+                      <div style={{fontSize:11,color:C.textSec,lineHeight:1.7,padding:'8px 10px',background:`${a.cor}08`,borderRadius:4,borderLeft:`2px solid ${a.cor}`}}>{a.dica}</div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+      </div>
+
+      {/* ── MODAL EDITAR PROJETO ── */}
+      {editProj&&(
+        <div style={{position:'fixed',inset:0,background:'rgba(5,10,25,.87)',zIndex:4000,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+          <div style={{background:C.white,borderRadius:10,width:'100%',maxWidth:620,maxHeight:'92vh',display:'flex',flexDirection:'column',boxShadow:'0 40px 100px rgba(0,0,0,.6)'}}>
+            <div style={{background:`linear-gradient(90deg,#0f1a33,${C.nav})`,padding:'14px 22px',borderRadius:'10px 10px 0 0',display:'flex',alignItems:'center',gap:12}}>
+              <span style={{fontSize:22}}>📚</span>
+              <span style={{color:'white',fontWeight:700,fontSize:15,fontFamily:'Georgia,serif',flex:1}}>Configurar Projeto</span>
+              <button onClick={()=>setEditProj(false)} style={{background:'rgba(255,255,255,.12)',border:'1px solid rgba(255,255,255,.2)',color:'white',width:32,height:32,borderRadius:5,cursor:'pointer',fontSize:18}}>×</button>
+            </div>
+            <div style={{flex:1,overflowY:'auto',padding:'12px 24px 20px'}}>
+              {[['📖 Nome da obra','nome','Teoria Geral do Processo'],['🏛 Área','area','Direito Processual Civil'],['✍️ Autores','autores','Ada Pellegrini Grinover']].map(([label,field,ph])=>(
+                <div key={field} style={{marginBottom:12}}>
+                  <label style={{...lbl,marginTop:10}}>{label}</label>
+                  <input style={inp} value={projEdit[field]||''} onChange={e=>setProjEdit(p=>({...p,[field]:e.target.value}))} placeholder={ph}/>
+                </div>
+              ))}
+              <label style={{...lbl,marginTop:10}}>✅ Capítulos concluídos <span style={{fontWeight:400,textTransform:'none'}}>(um por linha)</span></label>
+              <textarea style={{...inp,minHeight:80,resize:'vertical',lineHeight:1.7,fontSize:12}}
+                value={(projEdit.capsOk||[]).join('\n')} onChange={e=>setProjEdit(p=>({...p,capsOk:e.target.value.split('\n').map(l=>l.trim()).filter(Boolean)}))}
+                placeholder={'Cap. 1 — Fundamentos\nCap. 2 — Princípios'}/>
+              <label style={{...lbl,marginTop:12}}>⏳ Próximos capítulos <span style={{fontWeight:400,textTransform:'none'}}>número|título — um por linha</span></label>
+              <textarea style={{...inp,minHeight:100,resize:'vertical',lineHeight:1.7,fontSize:12}}
+                value={(projEdit.capsProx||[]).map(c=>`${c.num}|${c.titulo}`).join('\n')} onChange={e=>setProjEdit(p=>({...p,capsProx:e.target.value.split('\n').map(l=>{const[n,...r]=l.trim().split('|');return n&&r.length?{num:n.trim(),titulo:r.join('|').trim()}:null;}).filter(Boolean)}))}
+                placeholder={'3|Jurisdição e Ação\n4|Competência\n5|Partes e Litisconsórcio'}/>
+              <div style={{fontSize:10,color:C.textTer,fontFamily:'monospace',marginTop:4}}>Formato: número|título</div>
+            </div>
+            <div style={{padding:'12px 24px',background:'#f7f3ec',borderTop:`1px solid ${C.border}`,borderRadius:'0 0 10px 10px',display:'flex',justifyContent:'flex-end',gap:8}}>
+              <button onClick={()=>setEditProj(false)} style={{padding:'8px 18px',background:C.white,color:C.nav,border:`1px solid ${C.border}`,borderRadius:4,cursor:'pointer',fontSize:13,fontFamily:'Georgia,serif'}}>Cancelar</button>
+              <button onClick={()=>salvarProj(projEdit)} style={{...btn(C.nav),padding:'8px 28px',fontSize:13}}>💾 Salvar projeto</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#ccc;border-radius:3px}`}</style>
+    </div>
+  );
+}
+
+
+
+// ── BIB TOOL ─────────────────────────────────────────────────────
+// ── JURBIBLIOTECA v2 — 80 obras clássicas ─────────────────────────
+async function bibCacheAdd(texto){
+  try{const cached=ls(K_BIB,[]);if(!Array.isArray(cached))return;if(cached.some(x=>x.texto===texto))return;const nova=[...cached,{id:Date.now(),texto,ts:new Date().toLocaleDateString('pt-BR')}];lsSet(K_BIB,nova);}catch{}
+}
+const CLASSICOS=[
+  // ── PROCESSO CIVIL ──
+  {id:"cgd",   area:"Processo Civil",     autores:"CINTRA, Antônio Carlos de Araújo; GRINOVER, Ada Pellegrini; DINAMARCO, Cândido Rangel", titulo:"Teoria Geral do Processo",                          edicao:"32", cidade:"São Paulo",      editora:"Malheiros",              ano:"2020", tipo:"Livro", tags:["teoria geral","jurisdição","ação","defesa"]},
+  {id:"din1",  area:"Processo Civil",     autores:"DINAMARCO, Cândido Rangel",  titulo:"Instituições de Direito Processual Civil",           volume:"I",  edicao:"9",  cidade:"São Paulo",      editora:"Malheiros",              ano:"2023", tipo:"Livro", tags:["jurisdição","princípios","ação"]},
+  {id:"din2",  area:"Processo Civil",     autores:"DINAMARCO, Cândido Rangel",  titulo:"Instituições de Direito Processual Civil",           volume:"II", edicao:"9",  cidade:"São Paulo",      editora:"Malheiros",              ano:"2023", tipo:"Livro", tags:["competência","partes","litisconsórcio"]},
+  {id:"did1",  area:"Processo Civil",     autores:"DIDIER JR., Fredie",         titulo:"Curso de Direito Processual Civil",                  volume:"I",  edicao:"25", cidade:"Salvador",       editora:"JusPodivm",              ano:"2024", tipo:"Livro", tags:["normas fundamentais","pressupostos","competência"]},
+  {id:"did2",  area:"Processo Civil",     autores:"DIDIER JR., Fredie; BRAGA, Paula Sarno; OLIVEIRA, Rafael Alexandria de", titulo:"Curso de Direito Processual Civil", volume:"II", edicao:"20", cidade:"Salvador", editora:"JusPodivm", ano:"2024", tipo:"Livro", tags:["prova","sentença","coisa julgada"]},
+  {id:"mar1",  area:"Processo Civil",     autores:"MARINONI, Luiz Guilherme; ARENHART, Sérgio Cruz; MITIDIERO, Daniel", titulo:"Curso de Processo Civil", volume:"I", edicao:"11", cidade:"São Paulo", editora:"Thomson Reuters Brasil", ano:"2023", tipo:"Livro", tags:["teoria geral","tutela","CPC"]},
+  {id:"wamb",  area:"Processo Civil",     autores:"WAMBIER, Teresa Arruda Alvim", titulo:"Primeiros Comentários ao Novo Código de Processo Civil", edicao:"2", cidade:"São Paulo", editora:"Thomson Reuters Brasil", ano:"2016", tipo:"Livro", tags:["CPC","comentários"]},
+  {id:"theo",  area:"Processo Civil",     autores:"THEODORO JÚNIOR, Humberto", titulo:"Curso de Direito Processual Civil",                  volume:"I",  edicao:"65", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2024", tipo:"Livro", tags:["processo civil","CPC","competência"]},
+  // ── DIREITO CIVIL ──
+  {id:"gom",   area:"Direito Civil",      autores:"GOMES, Orlando",             titulo:"Introdução ao Direito Civil",                                     edicao:"21", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2016", tipo:"Livro", tags:["pessoas","bens","fatos jurídicos"]},
+  {id:"pmi",   area:"Direito Civil",      autores:"PONTES DE MIRANDA, Francisco Cavalcanti", titulo:"Tratado de Direito Privado",                volume:"I",  edicao:"3",  cidade:"Rio de Janeiro", editora:"Borsoi",                 ano:"1970", tipo:"Livro", tags:["clássico","direito privado","negócio jurídico"]},
+  {id:"tar1",  area:"Direito Civil",      autores:"TARTUCE, Flávio",            titulo:"Direito Civil",                                              volume:"I",  edicao:"20", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2024", tipo:"Livro", tags:["LINDB","pessoas","bens","negócio jurídico"]},
+  {id:"tar2",  area:"Direito Civil",      autores:"TARTUCE, Flávio",            titulo:"Direito Civil",                                              volume:"II", edicao:"20", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2024", tipo:"Livro", tags:["obrigações","contratos"]},
+  {id:"ps",    area:"Direito Civil",      autores:"GAGLIANO, Pablo Stolze; PAMPLONA FILHO, Rodolfo", titulo:"Manual de Direito Civil",            edicao:"8",  cidade:"São Paulo",      editora:"Saraiva",                ano:"2024", tipo:"Livro", tags:["civil","contratos","família","sucessões"]},
+  {id:"caio",  area:"Direito Civil",      autores:"PEREIRA, Caio Mário da Silva", titulo:"Instituições de Direito Civil",                         volume:"I",  edicao:"33", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2024", tipo:"Livro", tags:["pessoas","bens","fatos jurídicos"]},
+  {id:"ros",   area:"Direito Civil",      autores:"ROSENVALD, Nelson; FARIAS, Cristiano Chaves de", titulo:"Curso de Direito Civil",              volume:"I",  edicao:"20", cidade:"Salvador",       editora:"JusPodivm",              ano:"2022", tipo:"Livro", tags:["parte geral","pessoas","bens"]},
+  {id:"rod",   area:"Direito Civil",      autores:"RODRIGUES, Silvio",          titulo:"Direito Civil — Parte Geral",                                        edicao:"34", cidade:"São Paulo",      editora:"Saraiva",                ano:"2003", tipo:"Livro", tags:["clássico","parte geral"]},
+  // ── DIREITO CONSTITUCIONAL ──
+  {id:"jas",   area:"Direito Constitucional", autores:"SILVA, José Afonso da",  titulo:"Curso de Direito Constitucional Positivo",                           edicao:"44", cidade:"São Paulo",      editora:"Malheiros",              ano:"2024", tipo:"Livro", tags:["constituição","direitos fundamentais","organização"]},
+  {id:"gmc",   area:"Direito Constitucional", autores:"MENDES, Gilmar Ferreira; BRANCO, Paulo Gustavo Gonet", titulo:"Curso de Direito Constitucional", edicao:"19", cidade:"São Paulo", editora:"Saraiva", ano:"2024", tipo:"Livro", tags:["direitos fundamentais","controle de constitucionalidade"]},
+  {id:"bar",   area:"Direito Constitucional", autores:"BARROSO, Luís Roberto",  titulo:"Curso de Direito Constitucional Contemporâneo",                       edicao:"10", cidade:"São Paulo",      editora:"Saraiva",                ano:"2023", tipo:"Livro", tags:["neoconstitucionalismo","direitos fundamentais","interpretação"]},
+  {id:"alex",  area:"Direito Constitucional", autores:"ALEXY, Robert",          titulo:"Teoria dos Direitos Fundamentais",                                    edicao:"2",  cidade:"São Paulo",      editora:"Malheiros",              ano:"2017", tipo:"Livro", tags:["princípios","regras","ponderação","proporcionalidade"]},
+  {id:"boel",  area:"Direito Constitucional", autores:"BONAVIDES, Paulo",       titulo:"Curso de Direito Constitucional",                                     edicao:"37", cidade:"São Paulo",      editora:"Malheiros",              ano:"2023", tipo:"Livro", tags:["princípios","direitos fundamentais","estado"]},
+  {id:"moro",  area:"Direito Constitucional", autores:"MORAES, Alexandre de",   titulo:"Direito Constitucional",                                              edicao:"40", cidade:"São Paulo",      editora:"Atlas",                  ano:"2024", tipo:"Livro", tags:["direitos fundamentais","organização","controle"]},
+  // ── DIREITO PENAL ──
+  {id:"grg",   area:"Direito Penal",      autores:"GRECO, Rogério",             titulo:"Curso de Direito Penal: Parte Geral",                volume:"I",  edicao:"25", cidade:"Niterói",        editora:"Impetus",                ano:"2023", tipo:"Livro", tags:["crime","tipicidade","culpabilidade","pena"]},
+  {id:"mas",   area:"Direito Penal",      autores:"MASSON, Cleber",             titulo:"Direito Penal Esquematizado: Parte Geral",           volume:"I",  edicao:"17", cidade:"São Paulo",      editora:"Método",                 ano:"2023", tipo:"Livro", tags:["parte geral","crime","pena"]},
+  {id:"bito",  area:"Direito Penal",      autores:"BITENCOURT, Cezar Roberto",  titulo:"Tratado de Direito Penal: Parte Geral",              volume:"I",  edicao:"28", cidade:"São Paulo",      editora:"Saraiva",                ano:"2022", tipo:"Livro", tags:["tratado","parte geral","teoria do crime"]},
+  {id:"hung",  area:"Direito Penal",      autores:"HUNGRIA, Nelson",             titulo:"Comentários ao Código Penal",                        volume:"I",  edicao:"4",  cidade:"Rio de Janeiro", editora:"Forense",                ano:"1958", tipo:"Livro", tags:["clássico","código penal","comentários"]},
+  {id:"zaf",   area:"Direito Penal",      autores:"ZAFFARONI, Eugenio Raúl; PIERANGELI, José Henrique", titulo:"Manual de Direito Penal Brasileiro: Parte Geral", edicao:"12", cidade:"São Paulo", editora:"Thomson Reuters Brasil", ano:"2019", tipo:"Livro", tags:["teoria do delito","culpabilidade"]},
+  // ── DIREITO ADMINISTRATIVO ──
+  {id:"hel",   area:"Direito Administrativo", autores:"MEIRELLES, Hely Lopes", titulo:"Direito Administrativo Brasileiro",                                    edicao:"44", cidade:"São Paulo",      editora:"Malheiros",              ano:"2023", tipo:"Livro", tags:["ato administrativo","licitação","serviço público"]},
+  {id:"dip",   area:"Direito Administrativo", autores:"DI PIETRO, Maria Sylvia Zanella", titulo:"Direito Administrativo",                                      edicao:"37", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2024", tipo:"Livro", tags:["ato administrativo","processo administrativo","contratos"]},
+  {id:"car",   area:"Direito Administrativo", autores:"CARVALHO FILHO, José dos Santos", titulo:"Manual de Direito Administrativo",                            edicao:"38", cidade:"São Paulo",      editora:"Atlas",                  ano:"2024", tipo:"Livro", tags:["ato administrativo","licitação","servidores"]},
+  {id:"ban",   area:"Direito Administrativo", autores:"BANDEIRA DE MELLO, Celso Antônio", titulo:"Curso de Direito Administrativo",                            edicao:"35", cidade:"São Paulo",      editora:"Malheiros",              ano:"2022", tipo:"Livro", tags:["princípios","ato administrativo","responsabilidade"]},
+  {id:"jscf",  area:"Direito Administrativo", autores:"JUSTEN FILHO, Marçal",   titulo:"Curso de Direito Administrativo",                                     edicao:"14", cidade:"São Paulo",      editora:"Thomson Reuters Brasil", ano:"2020", tipo:"Livro", tags:["licitação","contratos","serviço público"]},
+  // ── DIREITO TRIBUTÁRIO ──
+  {id:"pbc",   area:"Direito Tributário", autores:"CARVALHO, Paulo de Barros",  titulo:"Curso de Direito Tributário",                                          edicao:"32", cidade:"São Paulo",      editora:"Saraiva",                ano:"2021", tipo:"Livro", tags:["regra-matriz","lançamento","obrigação tributária"]},
+  {id:"sac",   area:"Direito Tributário", autores:"COÊLHO, Sacha Calmon Navarro", titulo:"Curso de Direito Tributário Brasileiro",                            edicao:"16", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2022", tipo:"Livro", tags:["obrigação tributária","lançamento","imunidade"]},
+  {id:"hugo",  area:"Direito Tributário", autores:"MACHADO, Hugo de Brito",     titulo:"Curso de Direito Tributário",                                          edicao:"44", cidade:"São Paulo",      editora:"Malheiros",              ano:"2023", tipo:"Livro", tags:["CTN","crédito tributário","lançamento"]},
+  {id:"ama",   area:"Direito Tributário", autores:"AMARO, Luciano",             titulo:"Direito Tributário Brasileiro",                                        edicao:"24", cidade:"São Paulo",      editora:"Saraiva",                ano:"2020", tipo:"Livro", tags:["sistema tributário","princípios","obrigação"]},
+  {id:"bale",  area:"Direito Tributário", autores:"BARRETO, Aires Fernandino",  titulo:"ISS na Constituição e na Lei",                                         edicao:"4",  cidade:"São Paulo",      editora:"Dialética",              ano:"2020", tipo:"Livro", tags:["ISS","tributário municipal","serviços"]},
+  // ── DIREITO DO TRABALHO ──
+  {id:"god",   area:"Direito do Trabalho", autores:"DELGADO, Maurício Godinho", titulo:"Curso de Direito do Trabalho",                                         edicao:"23", cidade:"São Paulo",      editora:"LTr",                    ano:"2024", tipo:"Livro", tags:["contrato de trabalho","princípios","CLT"]},
+  {id:"spm",   area:"Direito do Trabalho", autores:"MARTINS, Sérgio Pinto",     titulo:"Direito do Trabalho",                                                  edicao:"40", cidade:"São Paulo",      editora:"Saraiva",                ano:"2024", tipo:"Livro", tags:["CLT","contrato","jornada","salário"]},
+  {id:"alm",   area:"Direito do Trabalho", autores:"MONTEIRO DE BARROS, Alice", titulo:"Curso de Direito do Trabalho",                                         edicao:"9",  cidade:"São Paulo",      editora:"LTr",                    ano:"2013", tipo:"Livro", tags:["clássico","CLT","trabalho"]},
+  {id:"pla",   area:"Direito do Trabalho", autores:"CASSAR, Vólia Bomfim",      titulo:"Direito do Trabalho",                                                  edicao:"18", cidade:"São Paulo",      editora:"Método",                 ano:"2022", tipo:"Livro", tags:["CLT","contrato","CLT 2022"]},
+  // ── DIREITO EMPRESARIAL ──
+  {id:"fuc1",  area:"Direito Empresarial", autores:"COELHO, Fábio Ulhoa",       titulo:"Curso de Direito Comercial",                         volume:"I",  edicao:"25", cidade:"São Paulo",      editora:"Thomson Reuters Brasil", ano:"2023", tipo:"Livro", tags:["empresa","empresário","sociedades","registro"]},
+  {id:"fuc2",  area:"Direito Empresarial", autores:"COELHO, Fábio Ulhoa",       titulo:"Curso de Direito Comercial",                         volume:"II", edicao:"25", cidade:"São Paulo",      editora:"Thomson Reuters Brasil", ano:"2023", tipo:"Livro", tags:["títulos de crédito","contratos empresariais"]},
+  {id:"req",   area:"Direito Empresarial", autores:"REQUIÃO, Rubens",           titulo:"Curso de Direito Comercial",                         volume:"I",  edicao:"34", cidade:"São Paulo",      editora:"Saraiva",                ano:"2015", tipo:"Livro", tags:["clássico","sociedades","contratos mercantis"]},
+  {id:"mam",   area:"Direito Empresarial", autores:"MAMEDE, Gladston",          titulo:"Direito Empresarial Brasileiro",                     volume:"I",  edicao:"15", cidade:"São Paulo",      editora:"Atlas",                  ano:"2022", tipo:"Livro", tags:["empresa","empresário","estabelecimento"]},
+  {id:"tok",   area:"Direito Empresarial", autores:"TOMAZETTE, Marlon",         titulo:"Curso de Direito Empresarial",                       volume:"I",  edicao:"13", cidade:"São Paulo",      editora:"Saraiva",                ano:"2022", tipo:"Livro", tags:["empresa","sociedades","falência"]},
+  // ── DIREITO DO CONSUMIDOR ──
+  {id:"ben",   area:"Direito do Consumidor", autores:"BENJAMIN, Antônio Herman V.; MARQUES, Claudia Lima; BESSA, Leonardo Roscoe", titulo:"Manual de Direito do Consumidor", edicao:"11", cidade:"São Paulo", editora:"Thomson Reuters Brasil", ano:"2022", tipo:"Livro", tags:["CDC","responsabilidade","práticas abusivas"]},
+  {id:"mar",   area:"Direito do Consumidor", autores:"MARQUES, Claudia Lima",   titulo:"Contratos no Código de Defesa do Consumidor",                          edicao:"9",  cidade:"São Paulo",      editora:"Thomson Reuters Brasil", ano:"2019", tipo:"Livro", tags:["CDC","contratos","cláusulas abusivas"]},
+  {id:"ner",   area:"Direito do Consumidor", autores:"NERY JR., Nelson",        titulo:"Código Brasileiro de Defesa do Consumidor — Comentado",                edicao:"12", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2019", tipo:"Livro", tags:["CDC","comentários"]},
+  // ── TEORIA DO DIREITO ──
+  {id:"kel",   area:"Teoria do Direito",  autores:"KELSEN, Hans",              titulo:"Teoria Pura do Direito",                                               edicao:"8",  cidade:"São Paulo",      editora:"Martins Fontes",         ano:"2009", tipo:"Livro", tags:["norma","validade","positivismo","clássico"]},
+  {id:"dw",    area:"Teoria do Direito",  autores:"DWORKIN, Ronald",           titulo:"Levando os Direitos a Sério",                                           edicao:"3",  cidade:"São Paulo",      editora:"Martins Fontes",         ano:"2010", tipo:"Livro", tags:["direitos","princípios","integridade","clássico"]},
+  {id:"raz",   area:"Teoria do Direito",  autores:"RAZ, Joseph",               titulo:"A Autoridade do Direito",                                               edicao:"1",  cidade:"São Paulo",      editora:"WMF Martins Fontes",     ano:"2012", tipo:"Livro", tags:["autoridade","obrigação","direito"]},
+  {id:"hrt",   area:"Teoria do Direito",  autores:"HART, Herbert Lionel Adolphus", titulo:"O Conceito de Direito",                                              edicao:"3",  cidade:"São Paulo",      editora:"WMF Martins Fontes",     ano:"2009", tipo:"Livro", tags:["norma","regras","positivismo","clássico"]},
+  {id:"mce",   area:"Teoria do Direito",  autores:"MACCORMICK, Neil",          titulo:"Argumentação Jurídica e Teoria do Direito",                             edicao:"1",  cidade:"São Paulo",      editora:"Martins Fontes",         ano:"2006", tipo:"Livro", tags:["argumentação","raciocínio","coerência"]},
+  // ── DIREITO DIGITAL ──
+  {id:"tex",   area:"Direito Digital",    autores:"TEIXEIRA, Tarcísio",        titulo:"Direito Digital e Processo Eletrônico",                                 edicao:"5",  cidade:"São Paulo",      editora:"Saraiva",                ano:"2020", tipo:"Livro", tags:["LGPD","processo eletrônico","digital"]},
+  {id:"poli",  area:"Direito Digital",    autores:"POLI, Leonardo Macedo; NAVES, Bruno Torquato de Oliveira", titulo:"Privacidade e Proteção de Dados Pessoais", edicao:"1", cidade:"Belo Horizonte", editora:"D'Plácido", ano:"2022", tipo:"Livro", tags:["LGPD","privacidade","dados pessoais"]},
+  {id:"bri",   area:"Direito Digital",    autores:"BRITO CRUZ, Francisco",     titulo:"Direito, Democracia e Cultura Digital",                                 edicao:"1",  cidade:"São Paulo",      editora:"Contracorrente",         ano:"2020", tipo:"Livro", tags:["plataformas","democracia","regulação digital"]},
+  // ── DIREITO AMBIENTAL ──
+  {id:"antune",area:"Direito Ambiental",  autores:"ANTUNES, Paulo de Bessa",   titulo:"Direito Ambiental",                                                     edicao:"22", cidade:"São Paulo",      editora:"Atlas",                  ano:"2022", tipo:"Livro", tags:["meio ambiente","licenciamento","dano ambiental"]},
+  {id:"silva_a",area:"Direito Ambiental", autores:"SILVA, José Afonso da",     titulo:"Direito Ambiental Constitucional",                                      edicao:"10", cidade:"São Paulo",      editora:"Malheiros",              ano:"2013", tipo:"Livro", tags:["constituição","meio ambiente","princípios"]},
+  // ── DIREITO PREVIDENCIÁRIO ──
+  {id:"ibs",   area:"Direito Previdenciário", autores:"IBRAHIM, Fábio Zambitte", titulo:"Curso de Direito Previdenciário",                                      edicao:"27", cidade:"Niterói",        editora:"Impetus",                ano:"2022", tipo:"Livro", tags:["previdência","custeio","benefícios","RGPS"]},
+  {id:"ols",   area:"Direito Previdenciário", autores:"OLIVEIRA, Lamartine Braga de", titulo:"Manual de Direito Previdenciário",                                edicao:"16", cidade:"Rio de Janeiro", editora:"Forense",                ano:"2023", tipo:"Livro", tags:["previdência","benefícios","contribuições"]},
+  // ── DIREITO BANCÁRIO ──
+  {id:"abr",   area:"Direito Bancário",      autores:"ABRÃO, Nelson",              titulo:"Curso de Direito Bancário",                                             edicao:"17", cidade:"São Paulo",      editora:"Atlas",                  ano:"2022", tipo:"Livro", tags:["contrato bancário","crédito","operações ativas","operações passivas"]},
+  {id:"sal",   area:"Direito Bancário",      autores:"SALOMÃO NETO, Eduardo",      titulo:"Direito Bancário",                                                      edicao:"3",  cidade:"São Paulo",      editora:"Atlas",                  ano:"2014", tipo:"Livro", tags:["sistema financeiro","contratos bancários","depósito","mútuo"]},
+  {id:"fubc",  area:"Direito Bancário",      autores:"COELHO, Fábio Ulhoa",        titulo:"Manual de Direito Bancário e Empresarial",                              edicao:"6",  cidade:"São Paulo",      editora:"Thomson Reuters Brasil", ano:"2021", tipo:"Livro", tags:["contratos bancários","crédito","financiamento"]},
+  {id:"covello",area:"Direito Bancário",     autores:"COVELLO, Sérgio Carlos",     titulo:"Contratos Bancários",                                                   edicao:"4",  cidade:"São Paulo",      editora:"Universitária de Direito",ano:"2001", tipo:"Livro", tags:["clássico","contratos bancários","mútuo","abertura de crédito"]},
+  {id:"berger",area:"Direito Bancário",      autores:"BERGER, Renato",             titulo:"Crédito e Financiamento no Sistema Financeiro Nacional",                 edicao:"1",  cidade:"São Paulo",      editora:"Thomson Reuters Brasil", ano:"2019", tipo:"Livro", tags:["crédito","financiamento","garantias","FIDC"]},
+  {id:"terra", area:"Direito Bancário",      autores:"TERRA, Marcelo",             titulo:"Direito Bancário e do Mercado de Capitais",                             edicao:"2",  cidade:"São Paulo",      editora:"Saraiva",                ano:"2020", tipo:"Livro", tags:["sistema financeiro","contratos","valores mobiliários"]},
+  {id:"turczyn",area:"Direito Bancário",     autores:"TURCZYN, Sidnei",            titulo:"O Sistema Financeiro Nacional e a Regulação Bancária",                  edicao:"1",  cidade:"São Paulo",      editora:"Thomson Reuters Brasil", ano:"2005", tipo:"Livro", tags:["sistema financeiro","regulação","BACEN","CMN"]},
+  // ── MERCADO DE CAPITAIS ──
+  {id:"eiz1",  area:"Mercado de Capitais",   autores:"EIZIRIK, Nelson; GAAL, Ariádna B.; PARENTE, Flávia; HENRIQUES, Marcus de Freitas", titulo:"Mercado de Capitais: Regime Jurídico", edicao:"4", cidade:"São Paulo", editora:"Quartier Latin", ano:"2019", tipo:"Livro", tags:["CVM","valores mobiliários","ofertas públicas","insider trading"]},
+  {id:"eiz2",  area:"Mercado de Capitais",   autores:"EIZIRIK, Nelson",            titulo:"A Lei das S.A. Comentada",                                     volume:"I",  edicao:"3",  cidade:"São Paulo",      editora:"Quartier Latin",         ano:"2019", tipo:"Livro", tags:["sociedades anônimas","acionista","conselho de administração"]},
+  {id:"yaz",   area:"Mercado de Capitais",   autores:"YAZBEK, Otavio",             titulo:"Regulação do Mercado Financeiro e de Capitais",                          edicao:"2",  cidade:"Rio de Janeiro", editora:"Elsevier",               ano:"2009", tipo:"Livro", tags:["regulação","CVM","BACEN","sistema financeiro"]},
+  {id:"comp",  area:"Mercado de Capitais",   autores:"COMPARATO, Fábio Konder; SALOMÃO FILHO, Calixto", titulo:"O Poder de Controle na Sociedade Anônima",          edicao:"6",  cidade:"Rio de Janeiro", editora:"Forense",                ano:"2014", tipo:"Livro", tags:["controle societário","acionista controlador","abuso de poder"]},
+  {id:"cvm1",  area:"Mercado de Capitais",   autores:"CHEDIAK, Julian; MUNHOZ, Eduardo Secchi; PIVA, Luciano Zordan (Coord.)", titulo:"Mercado de Capitais: Aspectos Jurídicos", edicao:"1", cidade:"São Paulo", editora:"Thomson Reuters Brasil", ano:"2020", tipo:"Livro", tags:["CVM","oferta pública","insider trading","regulação"]},
+  {id:"sztj",  area:"Mercado de Capitais",   autores:"SZTAJN, Rachel",             titulo:"Teoria Jurídica da Empresa",                                            edicao:"2",  cidade:"São Paulo",      editora:"Atlas",                  ano:"2010", tipo:"Livro", tags:["empresa","teoria econômica","regulação","mercado"]},
+  {id:"bor",   area:"Mercado de Capitais",   autores:"BORBA, José Edwaldo Tavares",titulo:"Direito Societário",                                                    edicao:"16", cidade:"São Paulo",      editora:"Atlas",                  ano:"2021", tipo:"Livro", tags:["sociedades","ações","debêntures","assembleia"]},
+  {id:"carv",  area:"Mercado de Capitais",   autores:"CARVALHOSA, Modesto",        titulo:"Comentários à Lei de Sociedades Anônimas",                    volume:"I",  edicao:"7",  cidade:"São Paulo",      editora:"Saraiva",                ano:"2021", tipo:"Livro", tags:["S.A.","ações","controle","comentários"]},
+  {id:"pin_mc",area:"Mercado de Capitais",   autores:"PINHEIRO, Armando Castelar; SADDI, Jairo", titulo:"Direito, Economia e Mercados",                            edicao:"1",  cidade:"Rio de Janeiro", editora:"Elsevier",               ano:"2005", tipo:"Livro", tags:["law and economics","regulação","mercado"]},
+  {id:"guil",  area:"Mercado de Capitais",   autores:"GUILHERME, Luiz Fernando do Vale de Almeida", titulo:"Mercado Financeiro e de Capitais: Disciplina Jurídica", edicao:"1",  cidade:"São Paulo",      editora:"Quartier Latin",         ano:"2016", tipo:"Livro", tags:["valores mobiliários","fundos","derivativos","CVM"]},
+];
+const AREAS_FILTRO_BIB=["Todas as áreas","Processo Civil","Direito Civil","Direito Constitucional","Direito Penal","Direito Administrativo","Direito Tributário","Direito do Trabalho","Direito Empresarial","Direito do Consumidor","Teoria do Direito","Direito Digital","Direito Ambiental","Direito Previdenciário","Direito Bancário","Mercado de Capitais"];
+const PERIODOS_BIB=["Qualquer período","2020–2025","2015–2019","2010–2014","Clássicos (até 2009)"];
+const TIPOS_REF_BIB=["Qualquer tipo","Livro","Artigo","Tese","Dissertação"];
+function abntCompleta(r){const vol=r.volume?`, v. ${r.volume}`:"";const ed=r.edicao?`. ${r.edicao}. ed.`:"";return`${r.autores}. **${r.titulo}**${vol}${ed} ${r.cidade}: ${r.editora}, ${r.ano}.`;}
+function notaFormatada(r){const sobrenome=r.autores.split(";")[0].trim().split(",")[0].trim();const vol=r.volume?`, v. ${r.volume}`:"";const ed=r.edicao?`, ${r.edicao}. ed.`:"";return`N ${sobrenome}, *${r.titulo}*${vol}${ed}, ${r.cidade}, ${r.editora}, ${r.ano}.`;}
+function RefCardBib({r}){
+  const[cp,setCp]=useState(null);const[saved,setSaved]=useState(null);
+  const C={border:"#ddd9d0",bg:"#faf8f4",nav:"#12192e",gold:"#c49a2a",textSec:"#555",textTer:"#999"};
+  const copiar=async(texto,key)=>{navigator.clipboard?.writeText(texto);await bibCacheAdd(texto);setCp(key);setSaved(key);setTimeout(()=>{setCp(null);setSaved(null);},2500);};
+  return(
+    <div style={{background:"white",border:`1px solid ${C.border}`,borderRadius:6,padding:"14px 16px",marginBottom:10}}>
+      <div style={{display:"flex",gap:8,marginBottom:8,flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{background:`${C.gold}20`,color:C.gold,border:`1px solid ${C.gold}40`,fontSize:10,padding:"2px 8px",borderRadius:10,fontFamily:"monospace"}}>{r.area}</span>
+        <span style={{background:"#ede8df",color:C.textSec,fontSize:10,padding:"2px 8px",borderRadius:10,fontFamily:"monospace"}}>{r.tipo} · {r.ano}</span>
+        {saved&&<span style={{background:"#f0fdf4",color:"#166534",border:"1px solid #86efac",fontSize:10,padding:"2px 8px",borderRadius:10,fontFamily:"monospace",marginLeft:"auto"}}>✅ salvo no Hub</span>}
+      </div>
+      <div style={{fontSize:14,fontWeight:700,color:C.nav,marginBottom:3,lineHeight:1.4}}>{r.titulo}{r.volume&&<span style={{fontWeight:400,color:C.textSec}}>, v. {r.volume}</span>}</div>
+      <div style={{fontSize:12,color:C.textSec,marginBottom:10,lineHeight:1.5}}>{r.autores}</div>
+      <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:4,padding:"8px 12px",fontSize:11,fontFamily:"monospace",lineHeight:1.7,marginBottom:4}}>
+        <span style={{fontSize:9,color:C.textTer,display:"block",marginBottom:3,textTransform:"uppercase",letterSpacing:".06em"}}>ABNT</span>
+        {r.autores}. <strong>{r.titulo}</strong>{r.volume?`, v. ${r.volume}`:""}{r.edicao?`. ${r.edicao}. ed.`:""} {r.cidade}: {r.editora}, {r.ano}.
+      </div>
+      <div style={{background:C.bg,border:`1px solid ${C.border}`,borderRadius:4,padding:"8px 12px",fontSize:11,fontFamily:"monospace",lineHeight:1.7,marginBottom:10}}>
+        <span style={{fontSize:9,color:C.textTer,display:"block",marginBottom:3,textTransform:"uppercase",letterSpacing:".06em"}}>Nota de rodapé</span>
+        <sup>N</sup> {r.autores.split(";")[0].trim().split(",")[0].trim()}, <em>{r.titulo}</em>{r.volume?`, v. ${r.volume}`:""}{r.edicao?`, ${r.edicao}. ed.`:""}, {r.cidade}, {r.editora}, {r.ano}.
+      </div>
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",alignItems:"center"}}>
+        <button onClick={()=>copiar(abntCompleta(r),"abnt")} style={{padding:"5px 13px",background:cp==="abnt"?"#f0fdf4":"transparent",border:`1px solid ${cp==="abnt"?"#86efac":C.border}`,borderRadius:4,cursor:"pointer",fontSize:11,fontFamily:"monospace",color:cp==="abnt"?"#166534":C.textSec,transition:"all .15s"}}>{cp==="abnt"?"✅ copiado + salvo!":"📋 Copiar ABNT"}</button>
+        <button onClick={()=>copiar(notaFormatada(r),"fn")} style={{padding:"5px 13px",background:cp==="fn"?"#f0fdf4":"transparent",border:`1px solid ${cp==="fn"?"#86efac":C.border}`,borderRadius:4,cursor:"pointer",fontSize:11,fontFamily:"monospace",color:cp==="fn"?"#166534":C.textSec,transition:"all .15s"}}>{cp==="fn"?"✅ copiado + salvo!":"ⁿ Copiar nota"}</button>
+        {r.tags&&<div style={{display:"flex",gap:4,flexWrap:"wrap",marginLeft:"auto"}}>{r.tags.slice(0,4).map(t=><span key={t} style={{fontSize:9,padding:"2px 7px",background:"#ede8df",borderRadius:10,color:C.textTer,fontFamily:"monospace"}}>{t}</span>)}</div>}
+      </div>
+    </div>
+  );
+}
+function BibTool(){
+  const[busca,setBusca]=useState('');const[area,setArea]=useState('Todas as áreas');const[periodo,setPeriodo]=useState('Qualquer período');const[tipoRef,setTipoRef]=useState('Qualquer tipo');const[modo,setModo]=useState('classicos');const[loading,setLoading]=useState(false);const[iaResult,setIaResult]=useState('');const[iaErro,setIaErro]=useState('');const[cpTodos,setCpTodos]=useState(false);
+  const resultados=CLASSICOS.filter(r=>{const q=busca.toLowerCase();const matchBusca=!busca||[r.titulo,r.autores,...(r.tags||[])].some(s=>s.toLowerCase().includes(q));const matchArea=area==="Todas as áreas"||r.area===area;const matchTipo=tipoRef==="Qualquer tipo"||r.tipo===tipoRef;const matchPer=periodo==="Qualquer período"||(()=>{const a=parseInt(r.ano);if(periodo==="2020–2025")return a>=2020;if(periodo==="2015–2019")return a>=2015&&a<=2019;if(periodo==="2010–2014")return a>=2010&&a<=2014;if(periodo==="Clássicos (até 2009)")return a<=2009;return true;})();return matchBusca&&matchArea&&matchTipo&&matchPer;});
+  const buscarIA=useCallback(async()=>{
+    if(!busca.trim())return;
+    setIaResult('');setIaErro('');
+    await withLoading(async () => {
+      const prompt=`Você é especialista em doutrina jurídica. Pesquise e liste referências doutrinárias REAIS sobre:\n\nTema: "${busca}"${area!=="Todas as áreas"?`\nÁrea: ${area}`:""}${periodo!=="Qualquer período"?`\nPeríodo: ${periodo}`:""}.\n\nREGRAS: Somente obras que você tem certeza que existem. Se não tiver certeza da edição/página, omita.\nInclua obras nacionais E estrangeiras. Priorize 2018–2025 (exceto clássicos indispensáveis).\n\nPara cada obra:\n**[SOBRENOME, Prenome. *Título*. N. ed. Cidade: Editora, Ano.]**\nRelevância: [1–2 frases]\nNota de rodapé: [SOBRENOME, *Título abrev.*, ed., cidade, editora, ano, p. XX.]\n\nAo final: "**COMO USAR NO TEXTO:**" com 3 exemplos de citação integrada.\nListe pelo menos 8 obras:`;
+      const data=await callAI({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]});
       const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
       if(!txt)throw new Error('Resposta vazia.');
       setIaResult(txt);
@@ -1143,7 +2276,7 @@ function JurTool(){
     if(!busca.trim())return;
     setIaResult('');setErr('');
     await withLoading(async () => {
-      const data=await callClaude({model:'claude-sonnet-4-20250514',max_tokens:4000,messages:[{role:'user',content:`Pesquise jurisprudência REAL sobre: "${busca}"\nTribunal: ${tribunal==='Todos'?'STF, STJ, TST':tribunal} | Período: 2018–2025\n\nPara cada julgado:\n**[TRIBUNAL] — [Tipo] [número]/[UF]**\nRelator: [Min. Nome] | Data: [DD/MM/AAAA]\nTese: [enunciado em 2 frases]\n📋 CITAÇÃO INLINE: "o [Tribunal], ao julgar o [tipo] [número]/[UF], [Rel. Min. Nome], j. [data], fixou a tese de que [tese]"\nⁿ NOTA: "N [Tribunal], [tipo] [número]/[UF], Rel. Min. Nome, j. data."\n\n✗ NUNCA invente dados. Liste pelo menos 5 julgados.`}]});
+      const data=await callAI({model:'claude-sonnet-4-20250514',max_tokens:4000,messages:[{role:'user',content:`Pesquise jurisprudência REAL sobre: "${busca}"\nTribunal: ${tribunal==='Todos'?'STF, STJ, TST':tribunal} | Período: 2018–2025\n\nPara cada julgado:\n**[TRIBUNAL] — [Tipo] [número]/[UF]**\nRelator: [Min. Nome] | Data: [DD/MM/AAAA]\nTese: [enunciado em 2 frases]\n📋 CITAÇÃO INLINE: "o [Tribunal], ao julgar o [tipo] [número]/[UF], [Rel. Min. Nome], j. [data], fixou a tese de que [tese]"\nⁿ NOTA: "N [Tribunal], [tipo] [número]/[UF], Rel. Min. Nome, j. data."\n\n✗ NUNCA invente dados. Liste pelo menos 5 julgados.`}]});
       const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
       setIaResult(txt);
       const cached=ls('jura-jur-cache',[]);cached.push({id:Date.now(),texto:txt.slice(0,400)});lsSet('jura-jur-cache',cached);
@@ -1640,7 +2773,7 @@ Ao final, liste apenas os capítulos:
 1|Título do Capítulo 1
 2|Título do Capítulo 2
 \`\`\``;
-      const data=await callClaude({model:"claude-sonnet-4-20250514",max_tokens:8000,messages:[{role:"user",content:prompt}]});
+      const data=await callAI({model:"claude-sonnet-4-20250514",max_tokens:8000,messages:[{role:"user",content:prompt}]});
       const text=data?.content?.[0]?.text||"";
       if(!text)throw new Error("Resposta vazia.");
       setOutput(text);setStep("result");
@@ -1825,22 +2958,11 @@ function JurObraV2() {
     setMsgs(novasMsgs);
     await withLoadingMsg(async () => {
       const apiMsgs = novasMsgs.map(m => ({ role:m.role, content: m.docContent || m.content }));
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method:"POST", headers:{
-          "Content-Type":"application/json",
-          "x-api-key": getKey(),
-          "anthropic-version": "2023-06-01",
-          "anthropic-beta": "web-search-2025-03-05",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({
-          model:"claude-sonnet-4-20250514", max_tokens:8000,
-          system: buildSystem(tipo, nivel, projeto, jurCache, bibCache, !!doc, doc?.modoKey),
-          messages: apiMsgs,
-          tools: [{ type:"web_search_20250305", name:"web_search" }],
-        }),
+      const data = await callAI({
+        model:"claude-sonnet-4-20250514", max_tokens:8000,
+        system: buildSystem(tipo, nivel, projeto, jurCache, bibCache, !!doc, doc?.modoKey),
+        messages: apiMsgs,
       });
-      const data = await resp.json();
       const txt = (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
       setMsgs(prev => [...prev, { role:"assistant", content: txt || "Sem resposta." }]);
       setDoc(null);
@@ -2599,24 +3721,12 @@ function JurPecaV2() {
         content: m.docContent || m.content,
       }));
 
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": getKey(),
-          "anthropic-version": "2023-06-01",
-          "anthropic-beta": "web-search-2025-03-05",
-          "anthropic-dangerous-direct-browser-access": "true",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 8000,
-          system: buildSystemPeca(tipoKey, subtipo, area, nivel, docs.length > 0),
-          messages: apiMsgs,
-          tools: [{ type: "web_search_20250305", name: "web_search" }],
-        }),
+      const data = await callAI({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 8000,
+        system: buildSystemPeca(tipoKey, subtipo, area, nivel, docs.length > 0),
+        messages: apiMsgs,
       });
-      const data = await resp.json();
       const txt = (data.content || []).filter(b => b.type === "text").map(b => b.text).join("\n").trim();
       setMsgs(prev => [...prev, { role: "assistant", content: txt || "Sem resposta." }]);
       setDocs([]); // limpa após envio
@@ -3199,20 +4309,12 @@ function JurFinanceiro(){
     const novasMsgs=[...msgs,{role:"user",content:typeof msgContent==="string"?msgContent:prompt,docContent:doc?msgContent:null,docNome:doc?.nome}];
     setMsgs(novasMsgs);
     await withLoadingMsg(async () => {
-      const k=getKey();
-      if(!k)throw new Error('Chave não configurada.');
-      const resp=await fetch("https://api.anthropic.com/v1/messages",{
-        method:"POST",
-        headers:{"Content-Type":"application/json","x-api-key":k,"anthropic-version":"2023-06-01","anthropic-beta":"web-search-2025-03-05","anthropic-dangerous-direct-browser-access":"true"},
-        body:JSON.stringify({
-          model:"claude-sonnet-4-20250514",max_tokens:4000,
-          system:jfBuildSystem(tipoKey,regulador,nivel),
-          messages:novasMsgs.map(m=>({role:m.role,content:m.docContent||m.content})),
-          tools:[{type:"web_search_20250305",name:"web_search"}],
-        }),
+      const data=await callAI({
+        model:"claude-sonnet-4-20250514",max_tokens:4000,
+        system:jfBuildSystem(tipoKey,regulador,nivel),
+        messages:novasMsgs.map(m=>({role:m.role,content:m.docContent||m.content})),
       });
-      const data=await resp.json();
-      if(!resp.ok)throw new Error(data?.error?.message||`Erro ${resp.status}`);
+      if(!data?.content)throw new Error('Resposta inválida.');
       const txt=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
       setMsgs(prev=>[...prev,{role:"assistant",content:txt||"Sem resposta."}]);
       setDoc(null);
