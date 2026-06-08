@@ -1,0 +1,611 @@
+// ══════════════════════════════════════════════════════════════════
+// jurdocx.js  —  JurEdit DOCX Engine v1
+// Motor unificado pré-compilado. Carregado ANTES do Babel Standalone
+// para eliminar o custo de transpilação JSX em runtime.
+//
+// Funções globais exportadas:
+//   gerarDocx(rawText, nomeLivro, proj)   — JurDocxEngine
+//   gerarDocxObra(rawText, proj)          — JurObraV2
+//   gerarDocxPeca(rawText, titulo, tipo)  — JurPecaV2
+//   jfExportarDocx(rawText, titulo)       — JurFinanceiro
+//   jfLerArquivo(file)                    — JurFinanceiro upload
+//
+// Dependências: nenhuma (puro JS vanilla, sem React, sem Babel)
+// ══════════════════════════════════════════════════════════════════
+
+const CRC_TABLE=(()=>{const t=new Uint32Array(256);for(let i=0;i<256;i++){let c=i;for(let j=0;j<8;j++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[i]=c;}return t;})();
+function crc32(data){let c=0xFFFFFFFF;for(let i=0;i<data.length;i++)c=CRC_TABLE[(c^data[i])&0xFF]^(c>>>8);return(c^0xFFFFFFFF)>>>0;}
+function strToU8(str){return new TextEncoder().encode(str);}
+function concatU8(arrays){const total=arrays.reduce((s,a)=>s+a.length,0);const out=new Uint8Array(total);let p=0;for(const a of arrays){out.set(a,p);p+=a.length;}return out;}
+function setU16LE(buf,off,v){buf[off]=v&0xFF;buf[off+1]=(v>>8)&0xFF;}
+function setU32LE(buf,off,v){buf[off]=v&0xFF;buf[off+1]=(v>>8)&0xFF;buf[off+2]=(v>>16)&0xFF;buf[off+3]=(v>>24)&0xFF;}
+function buildZip(files){const localParts=[],cdParts=[];let offset=0;for(const f of files){const name=strToU8(f.name),data=f.data,crc=crc32(data),sz=data.length;const lh=new Uint8Array(30+name.length);setU32LE(lh,0,0x04034b50);setU16LE(lh,4,20);setU16LE(lh,6,0);setU16LE(lh,8,0);setU16LE(lh,10,0);setU16LE(lh,12,0);setU32LE(lh,14,crc);setU32LE(lh,18,sz);setU32LE(lh,22,sz);setU16LE(lh,26,name.length);setU16LE(lh,28,0);lh.set(name,30);const cd=new Uint8Array(46+name.length);setU32LE(cd,0,0x02014b50);setU16LE(cd,4,20);setU16LE(cd,6,20);setU16LE(cd,8,0);setU16LE(cd,10,0);setU16LE(cd,12,0);setU16LE(cd,14,0);setU32LE(cd,16,crc);setU32LE(cd,20,sz);setU32LE(cd,24,sz);setU16LE(cd,28,name.length);setU16LE(cd,30,0);setU16LE(cd,32,0);setU16LE(cd,34,0);setU16LE(cd,36,0);setU32LE(cd,38,0);setU32LE(cd,42,offset);cd.set(name,46);localParts.push(lh,data);cdParts.push(cd);offset+=lh.length+sz;}const cdData=concatU8(cdParts);const eocd=new Uint8Array(22);setU32LE(eocd,0,0x06054b50);setU16LE(eocd,4,0);setU16LE(eocd,6,0);setU16LE(eocd,8,files.length);setU16LE(eocd,10,files.length);setU32LE(eocd,12,cdData.length);setU32LE(eocd,16,offset);setU16LE(eocd,20,0);return concatU8([...localParts,cdData,eocd]);}
+function ex(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+const SUP_MAP={"⁰":0,"¹":1,"²":2,"³":3,"⁴":4,"⁵":5,"⁶":6,"⁷":7,"⁸":8,"⁹":9,"¹⁰":10,"¹¹":11,"¹²":12,"¹³":13,"¹⁴":14,"¹⁵":15,"¹⁶":16,"¹⁷":17,"¹⁸":18,"¹⁹":19,"²⁰":20,"²¹":21,"²²":22,"²³":23,"²⁴":24,"²⁵":25,"²⁶":26,"²⁷":27,"²⁸":28,"²⁹":29,"³⁰":30,"³¹":31,"³²":32,"³³":33,"³⁴":34,"³⁵":35,"³⁶":36,"³⁷":37,"³⁸":38,"³⁹":39,"⁴⁰":40,"⁴¹":41,"⁴²":42,"⁴³":43,"⁴⁴":44,"⁴⁵":45,"⁴⁶":46,"⁴⁷":47,"⁴⁸":48,"⁴⁹":49,"⁵⁰":50,"⁵¹":51,"⁵²":52,"⁵³":53,"⁵⁴":54,"⁵⁵":55,"⁵⁶":56,"⁵⁷":57,"⁵⁸":58,"⁵⁹":59,"⁶⁰":60,"⁶¹":61,"⁶²":62,"⁶³":63,"⁶⁴":64,"⁶⁵":65,"⁷⁰":70,"⁸⁰":80,"⁹⁰":90,"⁹⁹":99};
+const SUP_CHARS="⁰¹²³⁴⁵⁶⁷⁸⁹";
+const SUP_ENTRIES=Object.entries(SUP_MAP).sort((a,b)=>b[0].length-a[0].length);
+function supToNum(s){for(const[k,v]of SUP_ENTRIES){if(s.startsWith(k))return{n:v,len:k.length};}return null;}
+function parseNoteNum(line){const res=supToNum(line);if(res)return{num:res.n,text:line.slice(res.len).trim()};const m=line.match(/^(\d{1,2})[.\):\s]\s*(.+)/);if(m)return{num:parseInt(m[1]),text:m[2]};return null;}
+const emptyP=()=>`<w:p><w:pPr><w:spacing w:before="0" w:after="60"/></w:pPr></w:p>`;
+function wRun(r,pt=12){const sz=pt*2;const rpr=[r.bold?`<w:b/><w:bCs/>`:(r.b?`<w:b/><w:bCs/>`:""),r.italic?`<w:i/><w:iCs/>`:(r.i?`<w:i/><w:iCs/>`:""),r.sup?`<w:vertAlign w:val="superscript"/>`:"",`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>`,`<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join("");return`<w:r><w:rPr>${rpr}</w:rPr><w:t xml:space="preserve">${ex(r.text||r.t||"")}</w:t></w:r>`;}
+function wPara(runs,o={}){const al=o.center?(o.c?"center":"center"):(o.c?"center":(o.align||o.a||"both"));let indXml="";if(o.indent||o.indentLeft||o.indentRight||o.in||o.il||o.ir){const fl=(o.indent||o.in)?`w:firstLine="${o.indent||o.in}"`:"";const lft=(o.indentLeft||o.il)?`w:left="${o.indentLeft||o.il}"`:"";const rgt=(o.indentRight||o.ir)?`w:right="${o.indentRight||o.ir}"`:"";indXml=`<w:ind ${fl} ${lft} ${rgt}/>`;}const ppr=`<w:pPr><w:spacing w:before="${o.spaceBefore||o.sb||0}" w:after="${o.spaceAfter||o.sa||60}" w:line="${o.lineVal||o.lv||276}" w:lineRule="auto"/>${indXml}<w:jc w:val="${al}"/>${o.border?`<w:pBdr><w:bottom w:val="single" w:sz="6" w:space="1" w:color="000000"/></w:pBdr>`:""}</w:pPr>`;return`<w:p>${ppr}${runs.map(r=>wRun(r,o.sizePt||o.pt||12)).join("")}</w:p>`;}
+function wFootnote(id,text){const sz=18;const font=`<w:rFonts w:ascii="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman"/>`;const parts=[];const re=/\*([^*]+)\*/g;let last=0,m;while((m=re.exec(text))!==null){if(m.index>last)parts.push({t:text.slice(last,m.index),i:false});parts.push({t:m[1],i:true});last=m.index+m[0].length;}if(last<text.length)parts.push({t:text.slice(last),i:false});const hasItalic=parts.some(p=>p.i);let runsXml;if(!hasItalic){const txt=parts.map(p=>p.t).join('');runsXml=`<w:r><w:rPr>${font}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t xml:space="preserve"> ${ex(txt)}</w:t></w:r>`;}else{runsXml=`<w:r><w:rPr>${font}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t xml:space="preserve"> </w:t></w:r>`+parts.map(p=>{const rpr=[p.i?`<w:i/><w:iCs/>`:"",font,`<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join("");return`<w:r><w:rPr>${rpr}</w:rPr><w:t xml:space="preserve">${ex(p.t)}</w:t></w:r>`;}).join('');}return`<w:footnote w:id="${id}"><w:p><w:pPr><w:spacing w:line="220" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r>${runsXml}</w:p></w:footnote>`;}
+function wFootnoteRef(id){return`<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="${id}"/></w:r>`;}
+function parseInlineWithFn(str){str=str.replace(/\[Fonte:[^\]]+\]/g,"");const out=[],re=/(\*\*[^*]+\*\*|\*[^*]+\*|[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\[(\d{1,2})\]|\((\d{1,2})\)(?=\s|$))/g;let last=0,m;while((m=re.exec(str))!==null){if(m.index>last)out.push({text:str.slice(last,m.index),bold:false,italic:false,sup:false,fnNum:null});const tok=m[0];if(/^\*\*[^*]+\*\*$/.test(tok))out.push({text:tok.slice(2,-2),bold:true,italic:false,sup:false,fnNum:null});else if(/^\*[^*]+\*$/.test(tok))out.push({text:tok.slice(1,-1),bold:false,italic:true,sup:false,fnNum:null});else{let n=null;const res=supToNum(tok);if(res){n=res.n;}else{const nm=tok.match(/^[\[\(](\d{1,2})[\]\)]$/);if(nm)n=parseInt(nm[1]);}out.push({text:tok,bold:false,italic:false,sup:true,fnNum:n});}last=m.index+tok.length;}if(last<str.length)out.push({text:str.slice(last),bold:false,italic:false,sup:false,fnNum:null});return out.filter(r=>r.text||(r.sup&&r.fnNum));}
+function wParaWithFn(rawLine,o={},footnoteMap=null){const al=o.center?(o.c?"center":"center"):(o.c?"center":(o.align||o.a||"both"));let indXml="";if(o.indent||o.indentLeft||o.indentRight||o.in||o.il||o.ir){const fl=(o.indent||o.in)?`w:firstLine="${o.indent||o.in}"`:"";const lft=(o.indentLeft||o.il)?`w:left="${o.indentLeft||o.il}"`:"";const rgt=(o.indentRight||o.ir)?`w:right="${o.indentRight||o.ir}"`:"";indXml=`<w:ind ${fl} ${lft} ${rgt}/>`;}const ppr=`<w:pPr><w:spacing w:before="${o.spaceBefore||o.sb||0}" w:after="${o.spaceAfter||o.sa||60}" w:line="${o.lineVal||o.lv||276}" w:lineRule="auto"/>${indXml}<w:jc w:val="${al}"/></w:pPr>`;const tokens=parseInlineWithFn(rawLine);const pt=o.sizePt||o.pt||12;const sz=pt*2;const FONT=`<w:rFonts w:ascii="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman" w:hAnsi="Times New Roman"/>`;const runs=tokens.map(r=>{if(r.sup&&r.fnNum&&r.fnNum>0){if(footnoteMap&&footnoteMap[r.fnNum])return wFootnoteRef(r.fnNum);if(footnoteMap&&!footnoteMap[r.fnNum]){footnoteMap[r.fnNum]=`Nota ${r.fnNum}. [Referência não localizada]`;return wFootnoteRef(r.fnNum);}}const rpr=[r.bold?`<w:b/><w:bCs/>`:"",r.italic?`<w:i/><w:iCs/>`:"",r.sup?`<w:vertAlign w:val="superscript"/>`:"",(r.b?`<w:b/><w:bCs/>`:""),FONT,`<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join("");return`<w:r><w:rPr>${rpr}</w:rPr><w:t xml:space="preserve">${ex(r.text||r.t||"")}</w:t></w:r>`;}).join("");return`<w:p>${ppr}${runs}</w:p>`;}
+
+// ── Motor principal gerarDocx (v1) ────────────────────────────────
+async function gerarDocx(rawText,nomeLivro,projetoObj){
+  const proj=projetoObj||{nome:nomeLivro||"",area:"",autores:"",capsOk:[],capsProx:[]};
+  const lines=rawText.replace(/\[Fonte:[^\]]+\]/g,"").split("\n");
+  const noteSecIdx=lines.findIndex(l=>/^②?\s*(NOTAS?\s*DE\s*RODAP)/i.test(l.trim().replace(/\*\*/g,"")));
+  const refSecIdx=lines.findIndex(l=>/^(③ REFERÊNCIAS|REFERÊNCIAS BIBLIOGRÁFICAS)/i.test(l.trim()));
+  const firstSep=Math.min(...[noteSecIdx,refSecIdx].filter(x=>x>-1).concat([lines.length]));
+  const bodyLines=lines.slice(0,firstSep);
+  const footnoteMap={};
+  const tryCollect=(slice)=>{for(const ln of slice){const raw=ln.trim();if(!raw)continue;const p=parseNoteNum(raw);if(p&&p.text.length>10)footnoteMap[p.num]=p.text;}};
+  if(noteSecIdx>-1){const end=refSecIdx>noteSecIdx?refSecIdx:lines.length;tryCollect(lines.slice(noteSecIdx+1,end));}
+  if(Object.keys(footnoteMap).length===0)tryCollect(lines.filter(l=>{const r=l.trim();return(SUP_CHARS.includes(r[0])||/^\d{1,2}[.\)]\s/.test(r))&&r.length<400;}));
+  if(Object.keys(footnoteMap).length===0)tryCollect(lines.slice(-80));
+  const RECUO=709,BODY=12,NOTE=9,SEC=12,CAP_T=14,CAP_N=12,EMENTA=10,LINE_B=276,LINE_S=240;
+  const paras=[];
+  const allCaps=[...proj.capsOk.map((c,i)=>({num:i+1,label:c,ok:true})),...proj.capsProx.map(c=>({num:c.num,label:`Cap. ${c.num} — ${c.titulo}`,ok:false}))];
+  if(proj.nome){
+    paras.push(emptyP(),emptyP(),emptyP());
+    paras.push(wPara([{text:proj.area||"Obra Jurídica",bold:false,italic:true,sup:false}],{center:true,sizePt:11,spaceBefore:0,spaceAfter:60,lineVal:LINE_S}));
+    paras.push(wPara([{text:proj.nome,bold:true,italic:false,sup:false}],{center:true,sizePt:22,spaceBefore:60,spaceAfter:160,lineVal:280}));
+    if(proj.autores)paras.push(wPara([{text:proj.autores,bold:false,italic:false,sup:false}],{center:true,sizePt:11,spaceBefore:0,spaceAfter:40,lineVal:LINE_S}));
+    paras.push(emptyP(),emptyP());
+    paras.push(wPara([{text:"",bold:false,italic:false,sup:false}],{center:true,sizePt:10,spaceBefore:40,spaceAfter:40,border:true}));
+    paras.push(emptyP());
+    if(allCaps.length>0){
+      paras.push(wPara([{text:"SUMÁRIO",bold:true,italic:false,sup:false}],{center:true,sizePt:14,spaceBefore:80,spaceAfter:200,lineVal:LINE_S}));
+      for(const c of allCaps){const label=typeof c.label==="string"?c.label:`Cap. ${c.num}`;paras.push(wPara([{text:(c.ok?"✓ ":"")+label,bold:false,italic:false,sup:false}],{align:"left",sizePt:11,spaceBefore:60,spaceAfter:40,lineVal:LINE_S,indent:0}));}
+      paras.push(emptyP());
+      paras.push(`<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>`);
+    }
+  }else{paras.push(emptyP());}
+  for(const line of bodyLines){
+    const raw=line.trim();
+    if(!raw){paras.push(emptyP());continue;}
+    if(/^-{3,}$/.test(raw)){paras.push(`<w:p><w:pPr><w:jc w:val="both"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="000000"/></w:pBdr><w:spacing w:before="120" w:after="120"/></w:pPr></w:p>`);continue;}
+    if(/^Cap[íi]tulo\s+[IVXLCDM\d]+$/i.test(raw)){paras.push(wPara([{text:raw,bold:false,italic:false,sup:false}],{center:true,sizePt:CAP_N,spaceBefore:0,spaceAfter:120,lineVal:LINE_S}));continue;}
+    if(raw===raw.toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(raw)&&raw.length>4&&!/^\d/.test(raw)&&!/^[①②③④⑤⑥⑦⑧]/.test(raw)&&!raw.startsWith("EMENTA_CAP")){paras.push(wPara([{text:raw,bold:true,italic:false,sup:false}],{center:true,sizePt:CAP_T,spaceBefore:0,spaceAfter:360,lineVal:LINE_S}));continue;}
+    if(/^EMENTA_CAP:/i.test(raw)){const txt=raw.replace(/^EMENTA_CAP:\s*/i,"");paras.push(wPara([{text:txt,bold:false,italic:true,sup:false}],{center:false,align:"both",sizePt:EMENTA,spaceBefore:0,spaceAfter:0,lineVal:LINE_S,indentLeft:1440,indentRight:1440}));continue;}
+    if(/^\*\*[^*]+\*\*$/.test(raw)){const txt=raw.replace(/\*\*/g,"");paras.push(wPara([{text:txt,bold:true,italic:false,sup:false}],{align:"left",sizePt:SEC,spaceBefore:420,spaceAfter:180,lineVal:LINE_B}));continue;}
+    if(/^\d+\.\d+(\.\d+)?\s+\S/.test(raw)){const txt=raw.replace(/^\d+\.\d+(\.\d+)?\s+/,"");paras.push(wPara([{text:txt,bold:true,italic:false,sup:false}],{align:"left",sizePt:SEC,spaceBefore:420,spaceAfter:180,lineVal:LINE_B}));continue;}
+    if(/^#{1,3}\s/.test(raw)){const txt=raw.replace(/^#+\s/,"");paras.push(wPara([{text:txt,bold:true,italic:false,sup:false}],{align:"left",sizePt:SEC,spaceBefore:420,spaceAfter:180,lineVal:LINE_B}));continue;}
+    if(/^>\s*/.test(raw)){paras.push(wParaWithFn(raw.replace(/^>\s*/,""),{align:"both",sizePt:NOTE,spaceBefore:120,spaceAfter:120,lineVal:LINE_S,indentLeft:709,indentRight:709},footnoteMap));continue;}
+    const rawClean=raw.replace(/\*\*/g,"").replace(/^#+\s*/,"").trim();
+    if(/^[①②③④⑤⑥⑦⑧]/.test(rawClean))continue;
+    if(/^(NOTAS?\s*DE\s*RODAP|REFERÊNCIAS|AVALIAÇÃO\s*TÉCNICA)/i.test(rawClean))continue;
+    if((SUP_CHARS.includes(raw[0])||/^\d{1,2}[.\)]\s/.test(raw))&&raw.length<400){const p=parseNoteNum(raw);if(p&&p.text.length>10)continue;}
+    paras.push(wParaWithFn(raw,{align:"both",sizePt:BODY,indent:RECUO,spaceBefore:0,spaceAfter:60,lineVal:LINE_B},footnoteMap));
+  }
+  const capLine=bodyLines.find(l=>/^CAPÍTULO\s+\d+/i.test(l.trim()))||"";
+  const titLine=bodyLines.find((l,i)=>i>0&&l.trim()&&l.trim()===l.trim().toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(l.trim()))||"";
+  const hTxt=ex(([capLine.trim(),titLine.trim()].filter(Boolean).join(" — ")||nomeLivro||"Edição Acadêmica").slice(0,80));
+  const fnEntries=Object.entries(footnoteMap).sort((a,b)=>Number(a[0])-Number(b[0]));
+  const footnotesXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">\n<w:footnote w:type="separator" w:id="-1"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r><w:r><w:separator/></w:r></w:p></w:footnote>\n<w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>\n${fnEntries.map(([id,text])=>wFootnote(Number(id),text)).join("\n")}\n</w:footnotes>`;
+  const docXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">\n<w:body>${paras.join("")}\n<w:sectPr><w:headerReference w:type="default" r:id="rH1"/><w:footerReference w:type="default" r:id="rF1"/>\n<w:pgSz w:w="11906" w:h="16838" w:orient="portrait"/>\n<w:pgMar w:top="1800" w:right="1800" w:bottom="1800" w:left="1800" w:header="708" w:footer="708" w:gutter="0"/>\n<w:pgNumType/><w:docGrid w:linePitch="360"/></w:sectPr>\n</w:body></w:document>`;
+  const headerXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n<w:p><w:pPr><w:jc w:val="right"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:after="80"/></w:pPr>\n<w:r><w:rPr><w:i/><w:color w:val="555555"/><w:sz w:val="16"/><w:szCs w:val="16"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>${hTxt}</w:t></w:r></w:p></w:hdr>`;
+  const footerXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n<w:p><w:pPr><w:jc w:val="center"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:before="80"/></w:pPr>\n<w:r><w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>— </w:t></w:r>\n<w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r>\n<w:r><w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t> —</w:t></w:r></w:p></w:ftr>`;
+  const relsDoc=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>\n  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/>\n  <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>\n  <Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable" Target="fontTable.xml"/>\n  <Relationship Id="rH1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>\n  <Relationship Id="rF1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/>\n</Relationships>`;
+  const relsRoot=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const ctypes=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/><Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>`;
+  const stylesXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman" w:eastAsia="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:jc w:val="both"/></w:pPr></w:style><w:style w:type="character" w:styleId="DefaultParagraphFont"><w:name w:val="Default Paragraph Font"/><w:uiPriority w:val="1"/><w:semiHidden/><w:unhideWhenUsed/></w:style><w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:basedOn w:val="DefaultParagraphFont"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:basedOn w:val="Normal"/><w:link w:val="FootnoteTextChar"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style><w:style w:type="character" w:styleId="FootnoteTextChar"><w:name w:val="Footnote Text Char"/><w:basedOn w:val="DefaultParagraphFont"/><w:link w:val="FootnoteText"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style></w:styles>`;
+  const settingsXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:displayBackgroundShape/><w:evenAndOddHeaders w:val="false"/><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>`;
+  const fontTableXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:fonts xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:font w:name="Times New Roman"><w:panose1 w:val="02020603050405020304"/><w:charset w:val="00"/><w:family w:val="roman"/><w:pitch w:val="variable"/></w:font></w:fonts>`;
+  const fnRels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`;
+  const files=[{name:"[Content_Types].xml",data:strToU8(ctypes)},{name:"_rels/.rels",data:strToU8(relsRoot)},{name:"word/document.xml",data:strToU8(docXml)},{name:"word/styles.xml",data:strToU8(stylesXml)},{name:"word/settings.xml",data:strToU8(settingsXml)},{name:"word/fontTable.xml",data:strToU8(fontTableXml)},{name:"word/footnotes.xml",data:strToU8(footnotesXml)},{name:"word/header1.xml",data:strToU8(headerXml)},{name:"word/footer1.xml",data:strToU8(footerXml)},{name:"word/_rels/document.xml.rels",data:strToU8(relsDoc)},{name:"word/_rels/footnotes.xml.rels",data:strToU8(fnRels)}];
+  const zipData=buildZip(files);
+  function u8ToBase64(u8){let bin="";const chunk=8192;for(let i=0;i<u8.length;i+=chunk)bin+=String.fromCharCode(...u8.subarray(i,i+chunk));return btoa(bin);}
+  const slug=(nomeLivro||"JurDocx").replace(/[^a-zA-Z0-9]/g,"_").slice(0,30);
+  const filename=slug+"_"+new Date().toISOString().slice(0,10)+".docx";
+  const b64=u8ToBase64(zipData);
+  const dataUri="data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,"+b64;
+  let url;try{const blob=new Blob([zipData],{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});url=URL.createObjectURL(blob);}catch(_){url=dataUri;}
+  const a=document.createElement("a");a.href=url;a.download=filename;a.style.display="none";document.body.appendChild(a);a.click();setTimeout(()=>{document.body.removeChild(a);if(url!==dataUri)URL.revokeObjectURL(url);},1000);
+  return{dataUri,filename,diagnostics:{footnoteMap,bodyLines:bodyLines.length,fnCount:fnEntries.length}};
+}
+
+// ── Análise prévia de texto ───────────────────────────────────────
+
+
+function parseNN_o(l){const r=supToNum(l);if(r)return{num:r.n,text:l.slice(r.len).trim()};const m=l.match(/^(\d{1,2})[.\):\s]\s*(.+)/);if(m)return{num:parseInt(m[1]),text:m[2]};return null;}
+function wFN_o(id,txt){const sz=18;const F=`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>`;const pts=[];const re=/\*([^*]+)\*/g;let last=0,m;while((m=re.exec(txt))!==null){if(m.index>last)pts.push({t:txt.slice(last,m.index),i:false});pts.push({t:m[1],i:true});last=m.index+m[0].length;}if(last<txt.length)pts.push({t:txt.slice(last),i:false});const hi=pts.some(p=>p.i);let rx;if(!hi){rx=`<w:r><w:rPr>${F}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t xml:space="preserve"> ${ex(pts.map(p=>p.t).join(""))}</w:t></w:r>`;}else{rx=pts.map(p=>{const rp=[p.i?`<w:i/><w:iCs/>`:"",F,`<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join("");return`<w:r><w:rPr>${rp}</w:rPr><w:t xml:space="preserve">${ex(p.t)}</w:t></w:r>`;}).join("");}return`<w:footnote w:id="${id}"><w:p><w:pPr><w:spacing w:line="220" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r>${rx}</w:p></w:footnote>`;}
+function wFNR_o(id){return`<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="${id}"/></w:r>`;}
+function pIF_o(str){str=str.replace(/\[Fonte:[^\]]+\]/g,"");const out=[],re=/(\*\*[^*]+\*\*|\*[^*]+\*|[⁰¹²³⁴⁵⁶⁷⁸⁹]+|\[(\d{1,2})\])/g;let last=0,m;while((m=re.exec(str))!==null){if(m.index>last)out.push({text:str.slice(last,m.index),bold:false,italic:false,sup:false,fnNum:null});const tok=m[0];if(/^\*\*[^*]+\*\*$/.test(tok))out.push({text:tok.slice(2,-2),bold:true,italic:false,sup:false,fnNum:null});else if(/^\*[^*]+\*$/.test(tok))out.push({text:tok.slice(1,-1),bold:false,italic:true,sup:false,fnNum:null});else{let n=null;const r=supToNum(tok);if(r){n=r.n;}else{const nm=tok.match(/^\[(\d{1,2})\]$/);if(nm)n=parseInt(nm[1]);}out.push({text:tok,bold:false,italic:false,sup:true,fnNum:n});}last=m.index+tok.length;}if(last<str.length)out.push({text:str.slice(last),bold:false,italic:false,sup:false,fnNum:null});return out.filter(r=>r.text||(r.sup&&r.fnNum));}
+function wPFN_o(raw,o={},fm=null){const al=o.center?"center":(o.align||"both");let ix="";if(o.indent)ix=`<w:ind w:firstLine="${o.indent}"/>`;if(o.indentLeft||o.indentRight)ix=`<w:ind ${o.indentLeft?`w:left="${o.indentLeft}"`:""}  ${o.indentRight?`w:right="${o.indentRight}"`:""}  />`;const pp=`<w:pPr><w:spacing w:before="${o.spaceBefore||0}" w:after="${o.spaceAfter||60}" w:line="${o.lineVal||276}" w:lineRule="auto"/>${ix}<w:jc w:val="${al}"/></w:pPr>`;const toks=pIF_o(raw);const pt=o.sizePt||12;const sz=pt*2;const F=`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>`;const runs=toks.map(r=>{if(r.sup&&r.fnNum&&r.fnNum>0&&fm){if(fm[r.fnNum])return wFNR_o(r.fnNum);fm[r.fnNum]=`Nota ${r.fnNum}.`;return wFNR_o(r.fnNum);}const rp=[r.bold?`<w:b/><w:bCs/>`:"",r.italic?`<w:i/><w:iCs/>`:"",r.sup?`<w:vertAlign w:val="superscript"/>`:"",F,`<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join("");return`<w:r><w:rPr>${rp}</w:rPr><w:t xml:space="preserve">${ex(r.text||"")}</w:t></w:r>`;}).join("");return`<w:p>${pp}${runs}</w:p>`;}
+
+async function gerarDocxObra(rawText,proj){
+  const lines=rawText.split("\n");const noteIdx=lines.findIndex(l=>/^②?\s*NOTAS?\s*DE\s*RODAP/i.test(l.trim()));
+  const bodyLines=noteIdx>-1?lines.slice(0,noteIdx):lines;const fm={};
+  const tryFN=(sl)=>{for(const ln of sl){const r=ln.trim();if(!r)continue;const p=parseNN_o(r);if(p&&p.text.length>8)fm[p.num]=p.text;}};
+  if(noteIdx>-1)tryFN(lines.slice(noteIdx+1));
+  if(!Object.keys(fm).length)tryFN(lines.filter(l=>{const r=l.trim();return(SUP_CHARS.includes(r[0])||/^\d{1,2}[.\)]\s/.test(r))&&r.length<400;}));
+  if(!Object.keys(fm).length)tryFN(lines.slice(-80));
+  const RECUO=709,BODY=12,NOTE=9,SEC=12,CAP_T=14,CAP_N=12,EMENTA=10,LINE_B=276,LINE_S=240;
+  const paras=[];
+  const allCaps=[...proj.capsOk.map((c,i)=>({num:i+1,label:c,ok:true})),...proj.capsProx.map(c=>({num:c.num,label:`Cap. ${c.num} — ${c.titulo}`,ok:false}))];
+  paras.push(emptyP(),emptyP(),emptyP());
+  if(proj.area)paras.push(wPara([{text:proj.area,bold:false,italic:true,sup:false}],{center:true,sizePt:11,spaceAfter:60,lineVal:LINE_S}));
+  paras.push(wPara([{text:proj.nome||"Obra Jurídica",bold:true,italic:false,sup:false}],{center:true,sizePt:22,spaceBefore:60,spaceAfter:160,lineVal:280}));
+  if(proj.autores)paras.push(wPara([{text:proj.autores,bold:false,italic:false,sup:false}],{center:true,sizePt:11,spaceAfter:40,lineVal:LINE_S}));
+  paras.push(emptyP(),emptyP());
+  paras.push(wPara([{text:"",bold:false,italic:false,sup:false}],{center:true,sizePt:10,spaceBefore:40,spaceAfter:40,border:true}));
+  paras.push(emptyP());
+  if(allCaps.length>0){
+    paras.push(wPara([{text:"SUMÁRIO",bold:true,italic:false,sup:false}],{center:true,sizePt:14,spaceBefore:80,spaceAfter:200,lineVal:LINE_S}));
+    for(const c of allCaps){const label=typeof c.label==="string"?c.label:`Cap. ${c.num}`;paras.push(wPara([{text:(c.ok?"✓  ":"")+label,bold:false,italic:false,sup:false}],{align:"left",sizePt:11,spaceBefore:60,spaceAfter:40,lineVal:LINE_S}));}
+    paras.push(emptyP(),`<w:p><w:pPr><w:pageBreakBefore/></w:pPr></w:p>`);
+  }
+  for(const line of bodyLines){
+    const raw=line.trim();if(!raw){paras.push(emptyP());continue;}
+    if(/^-{3,}$/.test(raw)){paras.push(`<w:p><w:pPr><w:jc w:val="both"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="000000"/></w:pBdr><w:spacing w:before="120" w:after="120"/></w:pPr></w:p>`);continue;}
+    if(/^Cap[íi]tulo\s+[IVXLCDM\d]+$/i.test(raw)){paras.push(wPara([{text:raw,bold:false,italic:false,sup:false}],{center:true,sizePt:CAP_N,spaceAfter:120,lineVal:LINE_S}));continue;}
+    if(raw===raw.toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(raw)&&raw.length>4&&raw.length<120&&!/^\d/.test(raw)&&!/^[①②③④⑤⑥⑦⑧]/.test(raw)&&!raw.startsWith("EMENTA_CAP")){paras.push(wPara([{text:raw,bold:true,italic:false,sup:false}],{center:true,sizePt:CAP_T,spaceAfter:360,lineVal:LINE_S}));continue;}
+    if(/^EMENTA_CAP:/i.test(raw)){paras.push(wPara([{text:raw.replace(/^EMENTA_CAP:\s*/i,""),bold:false,italic:true,sup:false}],{align:"both",sizePt:EMENTA,spaceAfter:0,lineVal:LINE_S,indentLeft:1440,indentRight:1440}));continue;}
+    if(/^\*\*[^*]+\*\*$/.test(raw)){paras.push(wPara([{text:raw.replace(/\*\*/g,""),bold:true,italic:false,sup:false}],{align:"left",sizePt:SEC,spaceBefore:420,spaceAfter:180,lineVal:LINE_B}));continue;}
+    if(/^#{1,3}\s/.test(raw)){paras.push(wPara([{text:raw.replace(/^#+\s/,""),bold:true,italic:false,sup:false}],{align:"left",sizePt:SEC,spaceBefore:420,spaceAfter:180,lineVal:LINE_B}));continue;}
+    if(/^>\s*/.test(raw)){paras.push(wPFN_o(raw.replace(/^>\s*/,""),{align:"both",sizePt:NOTE,spaceBefore:120,spaceAfter:120,lineVal:LINE_S,indentLeft:709,indentRight:709},fm));continue;}
+    const rc=raw.replace(/\*\*/g,"").trim();
+    if(/^[①②③④⑤⑥⑦⑧]/.test(rc)||/^(NOTAS?\s*DE\s*RODAP|REFERÊNCIAS|AVALIAÇÃO\s*TÉCNICA)/i.test(rc))continue;
+    if((SUP_CHARS.includes(raw[0])||/^\d{1,2}[.\)]\s/.test(raw))&&raw.length<400){const p=parseNN_o(raw);if(p&&p.text.length>10)continue;}
+    paras.push(wPFN_o(raw,{align:"both",sizePt:BODY,indent:RECUO,spaceBefore:0,spaceAfter:60,lineVal:LINE_B},fm));
+  }
+  const capLine=bodyLines.find(l=>/^CAPÍTULO\s+\d+/i.test(l.trim()))||"";
+  const titLine=bodyLines.find((l,i)=>i>0&&l.trim()&&l.trim()===l.trim().toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(l.trim()))||"";
+  const hTxt=ex(([capLine.trim(),titLine.trim()].filter(Boolean).join(" — ")||proj.nome||"Edição Acadêmica").slice(0,80));
+  const fnE=Object.entries(fm).sort((a,b)=>Number(a[0])-Number(b[0]));
+  const FNX=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>${fnE.map(([id,t])=>wFN_o(Number(id),t)).join("")}</w:footnotes>`;
+  const docXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${paras.join("")}<w:sectPr><w:headerReference w:type="default" r:id="rH1"/><w:footerReference w:type="default" r:id="rF1"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1800" w:right="1800" w:bottom="1800" w:left="1800" w:header="708" w:footer="708"/><w:pgNumType/></w:sectPr></w:body></w:document>`;
+  const HDR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="right"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:after="80"/></w:pPr><w:r><w:rPr><w:i/><w:color w:val="555555"/><w:sz w:val="16"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>${hTxt}</w:t></w:r></w:p></w:hdr>`;
+  const FTR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="center"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:before="80"/></w:pPr><w:r><w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>— </w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r><w:r><w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t> —</w:t></w:r></w:p></w:ftr>`;
+  const rD=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable" Target="fontTable.xml"/><Relationship Id="rH1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rF1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>`;
+  const rR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const ct=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/><Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>`;
+  const sy=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:jc w:val="both"/></w:pPr></w:style><w:style w:type="character" w:styleId="DefaultParagraphFont"><w:name w:val="Default Paragraph Font"/><w:uiPriority w:val="1"/><w:semiHidden/><w:unhideWhenUsed/></w:style><w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:basedOn w:val="DefaultParagraphFont"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style></w:styles>`;
+  const se=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>`;
+  const ft=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:font w:name="Times New Roman"><w:panose1 w:val="02020603050405020304"/><w:charset w:val="00"/><w:family w:val="roman"/><w:pitch w:val="variable"/></w:font></w:fonts>`;
+  const fnR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`;
+  const files=[{name:"[Content_Types].xml",data:strToU8(ct)},{name:"_rels/.rels",data:strToU8(rR)},{name:"word/document.xml",data:strToU8(docXml)},{name:"word/styles.xml",data:strToU8(sy)},{name:"word/settings.xml",data:strToU8(se)},{name:"word/fontTable.xml",data:strToU8(ft)},{name:"word/footnotes.xml",data:strToU8(FNX)},{name:"word/header1.xml",data:strToU8(HDR)},{name:"word/footer1.xml",data:strToU8(FTR)},{name:"word/_rels/document.xml.rels",data:strToU8(rD)},{name:"word/_rels/footnotes.xml.rels",data:strToU8(fnR)}];
+  const zd=buildZip(files);function u8b64(u){let b="";const c=8192;for(let i=0;i<u.length;i+=c)b+=String.fromCharCode(...u.subarray(i,i+c));return btoa(b);}
+  const slug=(proj.nome||"JurObra").replace(/[^a-zA-Z0-9]/g,"_").slice(0,30);
+  const filename=slug+"_"+new Date().toISOString().slice(0,10)+".docx";
+  const dataUri="data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,"+u8b64(zd);
+  let url;try{const blob=new Blob([zd],{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});url=URL.createObjectURL(blob);}catch(_){url=dataUri;}
+  const a=document.createElement("a");a.href=url;a.download=filename;a.style.display="none";document.body.appendChild(a);a.click();
+  setTimeout(()=>{document.body.removeChild(a);if(url!==dataUri)URL.revokeObjectURL(url);},1000);
+  return{dataUri,filename};
+}
+
+// ── Storage API ────────────────────────────────────────────────────
+// K_PROJ, K_JUR, K_BIB já declarados globalmente
+const PROJ_DEFAULT = { nome:"", area:"", autores:"", capsOk:[], capsProx:[] };
+
+
+async function gerarDocxPeca(rawText,titulo,tipo){
+  const lines=rawText.split("\n");const noteIdx=lines.findIndex(l=>/^②?\s*NOTAS?\s*DE\s*RODAP/i.test(l.trim()));
+  const bodyLines=noteIdx>-1?lines.slice(0,noteIdx):lines;
+  const fm={};if(noteIdx>-1){for(const ln of lines.slice(noteIdx+1)){const r=ln.trim();if(!r)continue;const p=parseNN(r);if(p&&p.text.length>8)fm[p.num]=p.text;}}
+  function wFN(id,txt){const sz=18;const F=`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>`;return`<w:footnote w:id="${id}"><w:p><w:pPr><w:spacing w:line="220" w:lineRule="auto"/><w:jc w:val="both"/></w:pPr><w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteRef/></w:r><w:r><w:rPr>${F}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t xml:space="preserve"> ${ex(txt)}</w:t></w:r></w:p></w:footnote>`;}
+  function wFNR(id){return`<w:r><w:rPr><w:rStyle w:val="FootnoteReference"/></w:rPr><w:footnoteReference w:id="${id}"/></w:r>`;}
+  function pIF(str){str=str.replace(/\[Fonte:[^\]]+\]/g,"");const out=[],re=/(\*\*[^*]+\*\*|\*[^*]+\*|[⁰¹²³⁴⁵⁶⁷⁸⁹]+)/g;let last=0,m;while((m=re.exec(str))!==null){if(m.index>last)out.push({text:str.slice(last,m.index),bold:false,italic:false,sup:false,fnNum:null});const tok=m[0];if(/^\*\*[^*]+\*\*$/.test(tok))out.push({text:tok.slice(2,-2),bold:true,italic:false,sup:false,fnNum:null});else if(/^\*[^*]+\*$/.test(tok))out.push({text:tok.slice(1,-1),bold:false,italic:true,sup:false,fnNum:null});else{let n=null;const r=supToNum(tok);if(r)n=r.n;out.push({text:tok,bold:false,italic:false,sup:true,fnNum:n});}last=m.index+tok.length;}if(last<str.length)out.push({text:str.slice(last),bold:false,italic:false,sup:false,fnNum:null});return out.filter(r=>r.text||(r.sup&&r.fnNum));}
+  function wParaWithFn(raw,o={},fm=null){const al=o.center?"center":(o.align||"both");let ix="";if(o.indent){ix=`<w:ind w:firstLine="${o.indent}"/>`;}if(o.indentLeft||o.indentRight){ix=`<w:ind ${o.indentLeft?`w:left="${o.indentLeft}"`:""}  ${o.indentRight?`w:right="${o.indentRight}"`:""}  />`;}const pp=`<w:pPr><w:spacing w:before="${o.spaceBefore||0}" w:after="${o.spaceAfter||60}" w:line="${o.lineVal||276}" w:lineRule="auto"/>${ix}<w:jc w:val="${al}"/></w:pPr>`;const toks=pIF(raw);const pt=o.sizePt||12;const sz=pt*2;const F=`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>`;const runs=toks.map(r=>{if(r.sup&&r.fnNum&&r.fnNum>0&&fm){if(fm[r.fnNum])return wFNR(r.fnNum);fm[r.fnNum]=`Nota ${r.fnNum}.`;return wFNR(r.fnNum);}const rp=[r.bold?`<w:b/><w:bCs/>`:"",r.italic?`<w:i/><w:iCs/>`:"",r.sup?`<w:vertAlign w:val="superscript"/>`:"",F,`<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/>`].join("");return`<w:r><w:rPr>${rp}</w:rPr><w:t xml:space="preserve">${ex(r.text||"")}</w:t></w:r>`;}).join("");return`<w:p>${pp}${runs}</w:p>`;}
+  const paras=[];paras.push(emptyP(),emptyP());
+  paras.push(wPara([{text:tipo,bold:false,italic:true,sup:false}],{center:true,sizePt:10,spaceAfter:40,lineVal:240}));
+  paras.push(wPara([{text:titulo||"Peça Jurídica",bold:true,italic:false,sup:false}],{center:true,sizePt:16,spaceBefore:40,spaceAfter:120,lineVal:280}));
+  paras.push(wPara([{text:"",bold:false,italic:false,sup:false}],{center:true,sizePt:10,spaceBefore:20,spaceAfter:20,border:true}));paras.push(emptyP());
+  for(const line of bodyLines){const raw=line.trim();if(!raw){paras.push(emptyP());continue;}if(/^-{3,}$/.test(raw)){paras.push(`<w:p><w:pPr><w:jc w:val="both"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="000000"/></w:pBdr><w:spacing w:before="120" w:after="120"/></w:pPr></w:p>`);continue;}if(raw===raw.toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(raw)&&raw.length>4&&raw.length<120&&!/^\d/.test(raw)){paras.push(wPara([{text:raw,bold:true,italic:false,sup:false}],{align:"left",sizePt:12,spaceBefore:360,spaceAfter:120,lineVal:276}));continue;}if(/^\*\*[^*]+\*\*$/.test(raw)){paras.push(wPara([{text:raw.replace(/\*\*/g,""),bold:true,italic:false,sup:false}],{align:"left",sizePt:12,spaceBefore:360,spaceAfter:120,lineVal:276}));continue;}if(/^#{1,3}\s/.test(raw)){paras.push(wPara([{text:raw.replace(/^#+\s/,""),bold:true,italic:false,sup:false}],{align:"left",sizePt:12,spaceBefore:360,spaceAfter:120,lineVal:276}));continue;}if(/^>\s*/.test(raw)){paras.push(wParaWithFn(raw.replace(/^>\s*/,""),{align:"both",sizePt:9,spaceBefore:80,spaceAfter:80,lineVal:240,indentLeft:709,indentRight:709},fm));continue;}const rc=raw.replace(/\*\*/g,"").trim();if(/^[①②③④⑤⑥]/.test(rc)||/^NOTAS?\s*DE\s*RODAP/i.test(rc))continue;if((SUP_CHARS.includes(raw[0])||/^\d{1,2}[.\)]\s/.test(raw))&&raw.length<400){const p=parseNN(raw);if(p&&p.text.length>8)continue;}paras.push(wParaWithFn(raw,{align:"both",sizePt:12,indent:709,spaceBefore:0,spaceAfter:60,lineVal:276},fm));}
+  const fnE=Object.entries(fm).sort((a,b)=>Number(a[0])-Number(b[0]));
+  const FNX=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:footnotes xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:footnote w:type="separator" w:id="-1"><w:p><w:r><w:separator/></w:r></w:p></w:footnote><w:footnote w:type="continuationSeparator" w:id="0"><w:p><w:r><w:continuationSeparator/></w:r></w:p></w:footnote>${fnE.map(([id,t])=>wFN(Number(id),t)).join("")}</w:footnotes>`;
+  const hTxt=ex((titulo||tipo||"Peça Jurídica").slice(0,80));
+  const docXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${paras.join("")}<w:sectPr><w:headerReference w:type="default" r:id="rH1"/><w:footerReference w:type="default" r:id="rF1"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1800" w:right="1800" w:bottom="1800" w:left="1800" w:header="708" w:footer="708"/><w:pgNumType/></w:sectPr></w:body></w:document>`;
+  const HDR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="right"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:after="80"/></w:pPr><w:r><w:rPr><w:i/><w:color w:val="555555"/><w:sz w:val="16"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>${hTxt}</w:t></w:r></w:p></w:hdr>`;
+  const FTR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="center"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:before="80"/></w:pPr><w:r><w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>— </w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r><w:r><w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t> —</w:t></w:r></w:p></w:ftr>`;
+  const rD=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes" Target="footnotes.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/fontTable" Target="fontTable.xml"/><Relationship Id="rH1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rF1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>`;
+  const rR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const ct=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/fontTable.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.fontTable+xml"/><Override PartName="/word/footnotes.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footnotes+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>`;
+  const sy=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:jc w:val="both"/></w:pPr></w:style><w:style w:type="character" w:styleId="DefaultParagraphFont"><w:name w:val="Default Paragraph Font"/><w:uiPriority w:val="1"/><w:semiHidden/><w:unhideWhenUsed/></w:style><w:style w:type="character" w:styleId="FootnoteReference"><w:name w:val="footnote reference"/><w:basedOn w:val="DefaultParagraphFont"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:rPr><w:vertAlign w:val="superscript"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="FootnoteText"><w:name w:val="footnote text"/><w:basedOn w:val="Normal"/><w:uiPriority w:val="99"/><w:semiHidden/><w:unhideWhenUsed/><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr><w:rPr><w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr></w:style></w:styles>`;
+  const se=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>`;
+  const ft=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:font w:name="Times New Roman"><w:panose1 w:val="02020603050405020304"/><w:charset w:val="00"/><w:family w:val="roman"/><w:pitch w:val="variable"/></w:font></w:fonts>`;
+  const fnR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`;
+  const files=[{name:"[Content_Types].xml",data:strToU8(ct)},{name:"_rels/.rels",data:strToU8(rR)},{name:"word/document.xml",data:strToU8(docXml)},{name:"word/styles.xml",data:strToU8(sy)},{name:"word/settings.xml",data:strToU8(se)},{name:"word/fontTable.xml",data:strToU8(ft)},{name:"word/footnotes.xml",data:strToU8(FNX)},{name:"word/header1.xml",data:strToU8(HDR)},{name:"word/footer1.xml",data:strToU8(FTR)},{name:"word/_rels/document.xml.rels",data:strToU8(rD)},{name:"word/_rels/footnotes.xml.rels",data:strToU8(fnR)}];
+  const zd=buildZip(files);function u8b64(u){let b="";const c=8192;for(let i=0;i<u.length;i+=c)b+=String.fromCharCode(...u.subarray(i,i+c));return btoa(b);}
+  const slug=(titulo||tipo||"JurPeca").replace(/[^a-zA-Z0-9]/g,"_").slice(0,30);const filename=slug+"_"+new Date().toISOString().slice(0,10)+".docx";
+  const dataUri="data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,"+u8b64(zd);
+  let url;try{const blob=new Blob([zd],{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});url=URL.createObjectURL(blob);}catch(_){url=dataUri;}
+  const a=document.createElement("a");a.href=url;a.download=filename;a.style.display="none";document.body.appendChild(a);a.click();setTimeout(()=>{document.body.removeChild(a);if(url!==dataUri)URL.revokeObjectURL(url);},1000);
+  return{dataUri,filename};
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CONFIGURAÇÕES
+// ═══════════════════════════════════════════════════════════════════
+const TIPOS_PECA = {
+  peticao: {
+    label:"Petição", icon:"⚖️", cor:"#7c3aed",
+    subtipos:["Petição Inicial","Contestação","Recurso de Apelação","Agravo de Instrumento","Embargos de Declaração","Recurso Especial","Recurso Extraordinário","Razões Finais","Memoriais"],
+    modoDoc: "contestacao",
+    acoes:[
+      {ic:"📋",l:"Peça completa",             p:"Pesquise legislação e jurisprudência (STF/STJ 2020–2025) e elabore a peça completa com estrutura processual padrão sobre: "},
+      {ic:"📝",l:"Dos Fatos",                 p:"Redija a seção DOS FATOS de forma objetiva, cronológica e juridicamente precisa para: "},
+      {ic:"⚖️",l:"Do Direito",                p:"Pesquise e elabore a seção DO DIREITO com fundamentos legais, doutrina e jurisprudência (notas ¹²³) sobre: "},
+      {ic:"📜",l:"Dos Pedidos",               p:"Elabore a seção DOS PEDIDOS completa, precisa e em ordem lógica para: "},
+      {ic:"🚨",l:"Tutela de urgência",        p:"Redija requerimento de tutela de urgência (art. 300 CPC): fumus boni iuris, periculum in mora, reversibilidade, para: "},
+      {ic:"🔍",l:"Jurisprudência STF/STJ",    p:"Pesquise e cite jurisprudência STF e STJ 2020–2025 com número, relator, turma e data sobre: "},
+    ]
+  },
+  parecer: {
+    label:"Parecer", icon:"📋", cor:"#0369a1",
+    subtipos:["Parecer Jurídico","Nota Técnica Jurídica","Parecer em Processo Administrativo","Opinião Legal"],
+    modoDoc: "parecer",
+    acoes:[
+      {ic:"📋",l:"Parecer completo",          p:"Elabore parecer completo: EMENTA, I — DA CONSULTA, II — DO RELATÓRIO, III — DA FUNDAMENTAÇÃO, IV — DA CONCLUSÃO, notas ¹²³ ABNT, sobre: "},
+      {ic:"📌",l:"Ementa do parecer",         p:"Elabore a EMENTA do parecer: síntese precisa da consulta e conclusão em até 5 linhas, sobre: "},
+      {ic:"⚖️",l:"Fundamentação completa",    p:"Pesquise doutrina + jurisprudência STF/STJ (2020–2025) e redija a FUNDAMENTAÇÃO JURÍDICA com notas ¹²³, sobre: "},
+      {ic:"✅",l:"Conclusão e matriz de risco",p:"Redija a CONCLUSÃO com análise de risco jurídico (baixo/médio/alto) e alternativas possíveis, sobre: "},
+      {ic:"📚",l:"Doutrina e legislação",     p:"Pesquise e cite doutrina + legislação vigente em 2025 sobre: "},
+      {ic:"🔍",l:"Jurisprudência",            p:"Pesquise jurisprudência STF, STJ e TRFs (2020–2025) com número, relator, turma, data, sobre: "},
+    ]
+  },
+  ementa: {
+    label:"Ementa", icon:"📌", cor:"#065f46",
+    subtipos:["Ementa de Acórdão","Ementa de Decisão Monocrática","Ementa de Parecer"],
+    modoDoc: "julgado",
+    acoes:[
+      {ic:"📌",l:"Ementa completa",           p:"Elabore ementa jurídica completa no padrão STJ/STF: área, ramos, questão, tese, dispositivo, resultado. Sobre: "},
+      {ic:"🏛️",l:"Padrão STF",                p:"Redija ementa no padrão STF com tese de repercussão geral quando aplicável. Sobre: "},
+      {ic:"⚖️",l:"Padrão STJ",                p:"Redija ementa no padrão STJ com súmula/precedente aplicável. Sobre: "},
+      {ic:"🔑",l:"Palavras-chave",             p:"Gere 6 a 10 palavras-chave jurídicas em ordem alfabética para: "},
+      {ic:"✏️",l:"Aprimorar ementa",           p:"Revise e aprimore a seguinte ementa tornando-a mais precisa:\n\n"},
+      {ic:"📊",l:"Tese jurídica fixada",       p:"Redija a tese jurídica fixada no formato de precedente vinculante sobre: "},
+    ]
+  },
+  contrato: {
+    label:"Contrato", icon:"📄", cor:"#92400e",
+    subtipos:["Contrato Civil","Contrato Empresarial","Minuta Contratual","Aditivo","Cláusula Específica","Distrato","Acordo Extrajudicial"],
+    modoDoc: "parecer",
+    acoes:[
+      {ic:"📄",l:"Contrato completo",         p:"Elabore contrato completo com qualificação, objeto, obrigações, prazo, valor, penalidades, rescisão e disposições gerais, sobre: "},
+      {ic:"🎯",l:"Cláusula de objeto",        p:"Redija a CLÁUSULA DE OBJETO com precisão técnica delimitando o que é e não é objeto, para: "},
+      {ic:"⚠️",l:"Penalidades e rescisão",    p:"Redija as cláusulas de PENALIDADES, MULTAS e RESCISÃO com hipóteses de rescisão imotivada e justa causa, para: "},
+      {ic:"🛡️",l:"Garantias e limitações",    p:"Redija as cláusulas de GARANTIAS, RESPONSABILIDADE e LIMITAÇÃO DE DANOS, para: "},
+      {ic:"📋",l:"Disposições gerais",        p:"Redija as DISPOSIÇÕES GERAIS: foro, legislação aplicável, eleição de domicílio, para: "},
+      {ic:"✏️",l:"Revisar cláusula",          p:"Revise e aperfeiçoe a seguinte cláusula eliminando ambiguidades:\n\n"},
+    ]
+  },
+};
+
+const AREAS = ["Direito Processual Civil","Direito Processual Penal","Direito Civil","Direito Penal","Direito Tributário","Direito Administrativo","Direito Constitucional","Direito do Trabalho","Direito Empresarial","Direito do Consumidor","Direito Ambiental","Direito Previdenciário","Direito Digital","Direito Imobiliário","Direito Bancário","Mercado de Capitais"];
+const NIVEIS_P = [{v:"Operadores do Direito (juízes, advogados, promotores)",l:"Operadores do Direito"},{v:"Doutorado e tratados acadêmicos de referência",l:"Doutorado / Tratado"},{v:"Mestrado e pós-graduação stricto sensu",l:"Mestrado / Pós-Grad."},{v:"Graduação avançada",l:"Graduação Avançada"}];
+
+// ── Modos de análise de documento ─────────────────────────────────
+const MODOS_PECA = {
+  contestacao: {
+    label:"Contestação / Defesa",
+    icon:"🛡️",
+    cor:"#7c3aed",
+    desc:"Analisa a Petição Inicial e elabora a defesa completa",
+    instrucao: `Você recebeu uma PETIÇÃO INICIAL para análise estratégica de defesa.
+
+ANÁLISE OBRIGATÓRIA — extraia do documento:
+① Todos os pedidos (principal e subsidiários)
+② Fundamentos jurídicos invocados pelo autor
+③ Fatos alegados (separe o controvertido do incontroverso)
+④ Provas mencionadas ou juntadas
+⑤ Eventuais vícios processuais (ilegitimidade, inépcia, incompetência, prescrição, decadência)
+⑥ Valor da causa e natureza da ação
+
+ELABORE CONTESTAÇÃO COMPLETA:
+
+EXMO(A). SR(A). DR(A). JUIZ(A) DE DIREITO DA ___ VARA CÍVEL DA COMARCA DE ___
+
+[QUALIFICAÇÃO DO(A) RÉSTAURADO(A)], vem, por seu advogado, apresentar CONTESTAÇÃO:
+
+I — DAS PRELIMINARES PROCESSUAIS (se houver vícios identificados)
+[Arguir nulidades, ilegitimidade, incompetência, prescrição/decadência]
+
+II — DA IMPUGNAÇÃO ESPECÍFICA DOS FATOS
+[Rebater ponto a ponto cada fato alegado — art. 341 CPC]
+
+III — DO MÉRITO — DA IMPROCEDÊNCIA DOS PEDIDOS
+[Fundamentos jurídicos, doutrina e jurisprudência STF/STJ 2020–2025]
+[Teses defensivas principais e subsidiárias]
+
+IV — DOS PEDIDOS
+Diante do exposto, requer:
+a) O acolhimento das preliminares arguidas;
+b) Ao final, a total improcedência dos pedidos autorais;
+c) A condenação do autor em custas e honorários (art. 85 CPC).
+
+② NOTAS DE RODAPÉ
+[Mínimo 15 notas em ABNT superscript ¹²³]`
+  },
+  recurso: {
+    label:"Recurso estratégico",
+    icon:"📤",
+    cor:"#c45c1a",
+    desc:"Analisa decisão/acórdão e identifica os recursos cabíveis",
+    instrucao: `Você recebeu uma DECISÃO JUDICIAL ou ACÓRDÃO para análise recursal estratégica.
+
+ANÁLISE OBRIGATÓRIA — identifique:
+① ERROS IN PROCEDENDO (vícios processuais):
+   — Nulidade processual → Embargos de Declaração / Agravo Regimental
+   — Cerceamento de defesa, contraditório, ampla defesa
+   — Decisão ultra/extra/citra petita → Embargos de Declaração
+
+② ERROS IN JUDICANDO (erro de julgamento):
+   — Equívoco na aplicação da lei ou dos fatos → Apelação
+   — Violação de lei federal (art. 105, III, CF) → REsp ao STJ
+   — Violação da Constituição Federal (art. 102, III, CF) → RE ao STF
+   — Divergência com acórdão de outro Tribunal → REsp por divergência
+
+③ PREQUESTIONAMENTO:
+   — Quais dispositivos legais/constitucionais estão prequestionados?
+   — O que precisa ser opostos em Embargos para prequestionar?
+
+PARA CADA RECURSO CABÍVEL, elabore:
+— Fundamento legal do cabimento
+— Prazo e forma de interposição
+— Razões recursais completas com argumentação técnica
+— Jurisprudência favorável STF/STJ (2020–2025)
+— Pedido de provimento
+
+② NOTAS DE RODAPÉ
+[Mínimo 20 notas em ABNT superscript ¹²³]`
+  },
+  parecer: {
+    label:"Análise de consulta",
+    icon:"🔍",
+    cor:"#0369a1",
+    desc:"Analisa o documento de consulta e mapeia todas as possibilidades",
+    instrucao: `Você recebeu um DOCUMENTO DE CONSULTA para elaboração de parecer jurídico.
+
+ANÁLISE OBRIGATÓRIA — extraia:
+① Questão jurídica central submetida à consulta
+② Contexto fático relevante
+③ Documentos e cláusulas mencionados
+④ Partes envolvidas e seus interesses
+⑤ Riscos imediatos identificados
+
+ELABORE PARECER JURÍDICO COMPLETO:
+
+EMENTA: [síntese da consulta e conclusão — até 5 linhas]
+
+I — DA CONSULTA
+[Identificação precisa da questão jurídica]
+
+II — DO RELATÓRIO
+[Contexto fático — objetivo, sem posicionamento]
+
+III — DA FUNDAMENTAÇÃO JURÍDICA
+**3.1 Cenário Favorável ao Consulente**
+[Argumentos, legislação e jurisprudência que amparam a posição]
+
+**3.2 Cenário Desfavorável — Riscos Identificados**
+[Vulnerabilidades, teses adversariais prováveis]
+
+**3.3 Alternativas Jurídicas Disponíveis**
+[Opção A: ... / Opção B: ... / Opção C: ...]
+
+**3.4 Matriz de Risco**
+RISCO ATUAL: [BAIXO / MÉDIO / ALTO]
+Fundamento: [por que]
+
+IV — DA CONCLUSÃO
+[Resposta direta com recomendação estratégica]
+
+② NOTAS DE RODAPÉ
+[Mínimo 15 notas em ABNT superscript ¹²³]`
+  },
+  julgado: {
+    label:"Mineração de julgado",
+    icon:"⛏️",
+    cor:"#6b21a8",
+    desc:"Extrai ratio, lacunas, votos vencidos e cria teses exclusivas",
+    instrucao: `Você recebeu um ACÓRDÃO do STF/STJ/TJSP/TRF para análise estratégica de mineração jurídica.
+
+ANÁLISE PROFUNDA OBRIGATÓRIA:
+
+① RATIO DECIDENDI
+— Qual a tese central vinculante?
+— Em que se baseia (lei, CF, precedente)?
+— Qual o alcance objetivo e subjetivo?
+
+② OBITER DICTA
+— Quais argumentos são periféricos, não vinculantes?
+— Quais podem ser aproveitados em casos análogos?
+
+③ VOTOS VENCIDOS — OPORTUNIDADE ESTRATÉGICA
+— O que os ministros dissidentes argumentaram?
+— Esses argumentos podem embasar pedido de reconsideração/overruling?
+— Há tendência de mudança do tribunal?
+
+④ LACUNAS NÃO ENFRENTADAS — BRECHAS
+— Quais hipóteses fáticas o acórdão não abordou?
+— Há questões que ficaram em aberto?
+— O que foi implicitamente excluído do julgamento?
+
+⑤ DISTINGUISHING — COMO DIFERENCIAR
+— Em quais casos este precedente NÃO se aplica?
+— Quais elementos fáticos criam distinção?
+— Como argumentar que o caso do cliente é distinto?
+
+⑥ TESES EXCLUSIVAS PARA APROVEITAMENTO ESTRATÉGICO
+Tese 1: [nome da tese] — [fundamento + forma de uso]
+Tese 2: [nome da tese] — [fundamento + forma de uso]
+Tese 3: [nome da tese] — [fundamento + forma de uso]
+[Continue até esgotar as oportunidades]
+
+⑦ COMO USAR NO PRÓXIMO CASO
+— Script de argumentação para petição/recurso
+— Citação inline pronta
+— Nota de rodapé formatada
+
+② NOTAS DE RODAPÉ
+[Mínimo 10 notas — doutrina sobre o método e precedentes relacionados]`
+  },
+};
+
+
+// ── Montar content do documento para a API ─────────────────────────
+function montarContentDoc(doc, modoKey, instrucaoExtra) {
+  const modo = MODOS_PECA[modoKey];
+  const instrucao = modo.instrucao + (instrucaoExtra ? `\n\nINSTRUÇÃO ADICIONAL DO USUÁRIO:\n${instrucaoExtra}` : "");
+
+  if (doc.tipo === "pdf") {
+    return [
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: doc.base64 } },
+      { type: "text", text: instrucao },
+    ];
+  }
+  if (doc.tipo === "docx") {
+    return [
+      { type: "text", text: `DOCUMENTO PARA ANÁLISE (${doc.nome}):\n\n${doc.texto.slice(0, 30000)}\n\n---\n\n${instrucao}` },
+    ];
+  }
+  return [{ type: "text", text: instrucao }];
+}
+
+// ── System prompt base ─────────────────────────────────────────────
+function buildSystemPeca(tipoKey, subtipo, area, nivel, temDoc) {
+  const tipo = TIPOS_PECA[tipoKey];
+  return `Você é JurPeça Excellence v2 — redator e analista jurídico de máximo padrão técnico, com leitura de documentos e pesquisa web em tempo real.
+
+Tipo: ${tipo.label} — ${subtipo}
+Área: ${area} | Nível: ${nivel}
+${temDoc ? "MODO ANÁLISE DE DOCUMENTO: ativo — leia o documento integralmente antes de qualquer resposta." : ""}
+
+DESENVOLVIMENTO DE TESE — OBRIGATÓRIO:
+✓ Toda tese jurídica DEVE ser desenvolvida em pelo menos 3 camadas:
+  CAMADA 1 — BASE NORMATIVA: cite o dispositivo legal exato (artigo, inciso, parágrafo) com redação vigente em 2025
+  CAMADA 2 — FUNDAMENTO DOUTRINÁRIO: cite o entendimento majoritário e dissidente com nota ¹²³ ABNT
+  CAMADA 3 — RESPALDO JURISPRUDENCIAL: cite STF/STJ/TRF (2020–2025) com tribunal, tipo, data e tese
+✓ Cada tese principal exige subteses subsidiárias ("ainda que assim não se entenda...")
+✓ NUNCA afirme apenas a conclusão — demonstre o raciocínio jurídico completo
+✓ Peças processuais: mínimo 20 notas de rodapé. Pareceres: mínimo 15 notas.
+✓ Resposta COMPLETA — não interrompa a peça. Inclua TODOS os capítulos/seções do início ao fim.
+
+REGRAS ABSOLUTAS:
+✗ NUNCA invente número de processo, relator, data, autor ou obra
+✗ Se não confirmado → use fórmulas: "o STJ tem reiteradamente decidido que..." / "a doutrina dominante sustenta..."
+✓ Notas superscript ¹²³ — NUNCA [1] ou (1)
+✓ Formato nota: ¹ Prenome Sobrenome, *Título*, N. ed., Cidade, Editora, ano, p. XX. Jurisprudência: ¹ STJ, REsp XXXXXX/UF, Rel. Min. Nome, j. DD/MM/AAAA.
+✓ Ao final: ② NOTAS DE RODAPÉ com TODAS as notas numeradas em sequência
+
+ESTILO: técnico-jurídico preciso · voz impessoal · termos latinos em *itálico* · conectores clássicos (deveras, dessarte, ex vi, ad argumentandum)`;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// COMPONENTE PRINCIPAL
+// ═══════════════════════════════════════════════════════════════════
+
+
+async function jfExportarDocx(rawText,titulo){
+  const lines=rawText.split("\n");const paras=[];
+  const emP=()=>`<w:p><w:pPr><w:spacing w:before="0" w:after="60"/></w:pPr></w:p>`;
+  function wPj(txt,o={}){const al=o.center?"center":"both";const ix=o.indent?`<w:ind w:firstLine="${o.indent}"/>`:"";const pp=`<w:pPr><w:spacing w:before="${o.sb||0}" w:after="${o.sa||60}" w:line="${o.lv||276}" w:lineRule="auto"/>${ix}<w:jc w:val="${al}"/></w:pPr>`;const sz=(o.pt||12)*2;const F=`<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/>`;const rpr=`<w:rPr>${o.b?`<w:b/><w:bCs/>`:""}${o.i?`<w:i/><w:iCs/>`:""}${F}<w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr>`;return`<w:p>${pp}<w:r>${rpr}<w:t xml:space="preserve">${ex(txt)}</w:t></w:r></w:p>`;}
+  paras.push(emP(),emP());
+  paras.push(wPj("Direito Bancário e Mercado de Capitais",{center:true,pt:11,i:true,sa:60,lv:240}));
+  paras.push(wPj(titulo||"Documento Financeiro",{center:true,pt:18,b:true,sb:60,sa:160,lv:280}));
+  paras.push(emP());
+  for(const line of lines){
+    const raw=line.trim();if(!raw){paras.push(emP());continue;}
+    if(/^-{3,}$/.test(raw)){paras.push(`<w:p><w:pPr><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="000000"/></w:pBdr><w:spacing w:before="120" w:after="120"/></w:pPr></w:p>`);continue;}
+    if(raw===raw.toUpperCase()&&/[A-ZÁÉÍÓÚ]{4,}/.test(raw)&&raw.length>4&&raw.length<120&&!/^\d/.test(raw)){paras.push(wPj(raw,{b:true,pt:12,sb:360,sa:120,lv:240}));continue;}
+    if(/^\*\*[^*]+\*\*$/.test(raw)){paras.push(wPj(raw.replace(/\*\*/g,""),{b:true,pt:12,sb:300,sa:100,lv:276}));continue;}
+    if(/^#{1,3}\s/.test(raw)){paras.push(wPj(raw.replace(/^#+\s/,""),{b:true,pt:12,sb:300,sa:100,lv:276}));continue;}
+    paras.push(wPj(raw.replace(/\*\*/g,""),{indent:709,pt:12,lv:276}));
+  }
+  const hTxt=ex((titulo||"JurFinanceiro").slice(0,80));
+  const HDR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="right"/><w:pBdr><w:bottom w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:after="80"/></w:pPr><w:r><w:rPr><w:i/><w:color w:val="555555"/><w:sz w:val="16"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>${hTxt}</w:t></w:r></w:p></w:hdr>`;
+  const FTR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:ftr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:p><w:pPr><w:jc w:val="center"/><w:pBdr><w:top w:val="single" w:sz="4" w:space="4" w:color="888888"/></w:pBdr><w:spacing w:before="80"/></w:pPr><w:r><w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t>— </w:t></w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText> PAGE </w:instrText></w:r><w:r><w:fldChar w:fldCharType="end"/></w:r><w:r><w:rPr><w:sz w:val="20"/><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman"/></w:rPr><w:t> —</w:t></w:r></w:p></w:ftr>`;
+  const docXml=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><w:body>${paras.join("")}<w:sectPr><w:headerReference w:type="default" r:id="rH1"/><w:footerReference w:type="default" r:id="rF1"/><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1800" w:right="1800" w:bottom="1800" w:left="1800" w:header="708" w:footer="708"/></w:sectPr></w:body></w:document>`;
+  const sy=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/><w:sz w:val="24"/><w:szCs w:val="24"/></w:rPr></w:rPrDefault></w:docDefaults><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:pPr><w:jc w:val="both"/></w:pPr></w:style></w:styles>`;
+  const rR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
+  const rD=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/><Relationship Id="rH1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/><Relationship Id="rF1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/footer" Target="footer1.xml"/></Relationships>`;
+  const se=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:compat><w:compatSetting w:name="compatibilityMode" w:uri="http://schemas.microsoft.com/office/word" w:val="15"/></w:compat></w:settings>`;
+  const ct=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/><Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/><Override PartName="/word/footer1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.footer+xml"/></Types>`;
+  const ft=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:fonts xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:font w:name="Times New Roman"><w:panose1 w:val="02020603050405020304"/><w:charset w:val="00"/><w:family w:val="roman"/><w:pitch w:val="variable"/></w:font></w:fonts>`;
+  const fnR=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>`;
+  const files=[{name:"[Content_Types].xml",data:strToU8(ct)},{name:"_rels/.rels",data:strToU8(rR)},{name:"word/document.xml",data:strToU8(docXml)},{name:"word/styles.xml",data:strToU8(sy)},{name:"word/settings.xml",data:strToU8(se)},{name:"word/fontTable.xml",data:strToU8(ft)},{name:"word/header1.xml",data:strToU8(HDR)},{name:"word/footer1.xml",data:strToU8(FTR)},{name:"word/_rels/document.xml.rels",data:strToU8(rD)},{name:"word/_rels/footnotes.xml.rels",data:strToU8(fnR)}];
+  const zd=buildZip(files);
+  function u8b64(u){let b="";const c=8192;for(let i=0;i<u.length;i+=c)b+=String.fromCharCode(...u.subarray(i,i+c));return btoa(b);}
+  const slug=(titulo||"JurFin").replace(/[^a-zA-Z0-9]/g,"_").slice(0,30);
+  const filename=slug+"_"+new Date().toISOString().slice(0,10)+".docx";
+  const dataUri="data:application/vnd.openxmlformats-officedocument.wordprocessingml.document;base64,"+u8b64(zd);
+  let url;try{const blob=new Blob([zd],{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});url=URL.createObjectURL(blob);}catch(_){url=dataUri;}
+  const a=document.createElement("a");a.href=url;a.download=filename;a.style.display="none";document.body.appendChild(a);a.click();
+  setTimeout(()=>{document.body.removeChild(a);if(url!==dataUri)URL.revokeObjectURL(url);},1000);
+  return filename;
+}
+
+async function jfLerArquivo(file){
+  const ext=file.name.split(".").pop().toLowerCase();
+  if(ext==="pdf"){return new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>{res({tipo:"pdf",base64:e.target.result.split(",")[1],nome:file.name,size:file.size});};r.onerror=rej;r.readAsDataURL(file);});}
+  if(["docx","doc"].includes(ext)){return new Promise((res,rej)=>{const r=new FileReader();r.onload=async e=>{try{const x=await mammoth.extractRawText({arrayBuffer:e.target.result});res({tipo:"docx",texto:x.value,nome:file.name,size:file.size});}catch(e){rej(e);}};r.onerror=rej;r.readAsArrayBuffer(file);});}
+  throw new Error("Use PDF ou DOCX.");
+}
+
+function JFRichText({content}){
+  return(<div style={{lineHeight:1.75,fontSize:13}}>
+    {content.split("\n").map((line,i)=>{
+      if(!line.trim())return<div key={i} style={{height:8}}/>;
+      const parts=[];const re=/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;let last=0,m;
+      while((m=re.exec(line))!==null){if(m.index>last)parts.push(<span key={last}>{line.slice(last,m.index)}</span>);const tok=m[0];if(tok.startsWith("**"))parts.push(<strong key={m.index}>{tok.slice(2,-2)}</strong>);else if(tok.startsWith("*"))parts.push(<em key={m.index}>{tok.slice(1,-1)}</em>);else parts.push(<code key={m.index} style={{background:"rgba(0,0,0,.07)",padding:"1px 5px",borderRadius:3,fontFamily:"monospace",fontSize:11}}>{tok.slice(1,-1)}</code>);last=m.index+tok.length;}
+      if(last<line.length)parts.push(<span key={last}>{line.slice(last)}</span>);
+      return<div key={i}>{parts}</div>;
+    })}
+  </div>);
+}
+
+function JFModalNormativas({onClose,onUsar}){
+  const[busca,setBusca]=useState("");
+  const[org,setOrg]=useState("Todas");
+  const C={border:"#ddd9d0",bg:"#f5f4f1",nav:"#12192e",gold:"#c49a2a",textSec:"#555",textTer:"#999"};
+  const resultado=JF_NORMATIVAS.filter(n=>{
+    const q=busca.toLowerCase();
+    const mb=!busca||[n.numero,n.tema,...(n.tags||[])].some(s=>s.toLowerCase().includes(q));
+    const mo=org==="Todas"||n.org===org;
+    return mb&&mo;
+  });
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(5,10,25,.87)",zIndex:4000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+      <div style={{background:"white",borderRadius:10,width:"100%",maxWidth:700,maxHeight:"90vh",display:"flex",flexDirection:"column",boxShadow:"0 40px 100px rgba(0,0,0,.6)"}}>
+        <div style={{background:`linear-gradient(90deg,#0f1a33,${C.nav})`,padding:"14px 22px",borderRadius:"10px 10px 0 0",display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontSize:22}}>📚</span>
+          <span style={{color:"white",fontWeight:700,fontSize:15,fontFamily:"Georgia,serif",flex:1}}>Base Normativa — {JF_NORMATIVAS.length} normas</span>
+          <button onClick={onClose} style={{background:"rgba(255,255,255,.12)",border:"1px solid rgba(255,255,255,.2)",color:"white",width:32,height:32,borderRadius:5,cursor:"pointer",fontSize:18}}>×</button>
+        </div>
+        <div style={{padding:"12px 18px",borderBottom:`1px solid ${C.border}`,display:"flex",gap:10}}>
+          <input value={busca} onChange={e=>setBusca(e.target.value)} placeholder="Buscar por número, tema ou tag..." style={{flex:1,padding:"8px 12px",border:`1px solid ${C.border}`,borderRadius:4,fontFamily:"Georgia,serif",fontSize:13,outline:"none"}}/>
+          <select value={org} onChange={e=>setOrg(e.target.value)} style={{padding:"8px",border:`1px solid ${C.border}`,borderRadius:4,fontFamily:"monospace",fontSize:12,outline:"none",background:C.bg}}>
+            {["Todas","Federal","CVM","CMN","BACEN","IOSCO","BIS","EU","EUA"].map(o=><option key={o} value={o}>{o}</option>)}
+          </select>
+        </div>
+        <div style={{flex:1,overflowY:"auto",padding:"8px 18px"}}>
+          {resultado.map(n=>(
+            <div key={n.id} style={{padding:"10px 12px",borderBottom:`1px solid ${C.border}`,display:"flex",gap:10,alignItems:"flex-start"}}>
+              <div style={{flex:1}}>
+                <div style={{display:"flex",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+                  <span style={{fontSize:10,fontFamily:"monospace",padding:"1px 7px",background:"#ede8df",borderRadius:10,color:"#555"}}>{n.org}</span>
+                  <span style={{fontSize:11,fontWeight:700,color:C.nav}}>{n.tipo} {n.numero}</span>
+                </div>
+                <div style={{fontSize:12,color:C.textSec,lineHeight:1.5,marginBottom:4}}>{n.tema}</div>
+                <div style={{display:"flex",gap:3,flexWrap:"wrap"}}>{(n.tags||[]).slice(0,5).map(t=><span key={t} style={{fontSize:9,padding:"1px 6px",background:"#f0ebe0",borderRadius:8,color:C.textTer,fontFamily:"monospace"}}>{t}</span>)}</div>
+              </div>
+              <button onClick={()=>{onUsar(`${n.tipo} ${n.numero} — ${n.tema}`);onClose();}}
+                style={{padding:"4px 10px",background:"transparent",border:`1px solid ${C.border}`,borderRadius:4,cursor:"pointer",fontSize:10,fontFamily:"monospace",color:C.textSec,flexShrink:0}}>
+                → Usar
+              </button>
+            </div>
+          ))}
+          {resultado.length===0&&<div style={{textAlign:"center",padding:"32px",color:C.textTer,fontSize:13}}>Nenhuma norma encontrada</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
