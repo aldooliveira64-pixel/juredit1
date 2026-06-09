@@ -1696,7 +1696,7 @@ Ao final, liste apenas os capítulos:
 1|Título do Capítulo 1
 2|Título do Capítulo 2
 \`\`\``;
-      const data=await callAI({model:"claude-sonnet-4-20250514",max_tokens:8000,messages:[{role:"user",content:p}]});
+      const data=await callAI({model:"claude-sonnet-4-20250514",max_tokens:8000,messages:[{role:"user",content:prompt}]});
 
       if(!text)throw new Error("Resposta vazia.");
       setOutput(text);setStep("result");
