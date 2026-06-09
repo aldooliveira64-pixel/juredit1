@@ -1,17 +1,5 @@
-// ══════════════════════════════════════════════════════════════════
-// jurdocx.js  —  JurEdit DOCX Engine v1
-// Motor unificado pré-compilado. Carregado ANTES do Babel Standalone
-// para eliminar o custo de transpilação JSX em runtime.
-//
-// Funções globais exportadas:
-//   gerarDocx(rawText, nomeLivro, proj)   — JurDocxEngine
-//   gerarDocxObra(rawText, proj)          — JurObraV2
-//   gerarDocxPeca(rawText, titulo, tipo)  — JurPecaV2
-//   jfExportarDocx(rawText, titulo)       — JurFinanceiro
-//   jfLerArquivo(file)                    — JurFinanceiro upload
-//
-// Dependências: nenhuma (puro JS vanilla, sem React, sem Babel)
-// ══════════════════════════════════════════════════════════════════
+// jurdocx.js — JurEdit DOCX Engine
+// puro JS vanilla, sem React, sem Babel
 
 const CRC_TABLE=(()=>{const t=new Uint32Array(256);for(let i=0;i<256;i++){let c=i;for(let j=0;j<8;j++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[i]=c;}return t;})();
 function crc32(data){let c=0xFFFFFFFF;for(let i=0;i<data.length;i++)c=CRC_TABLE[(c^data[i])&0xFF]^(c>>>8);return(c^0xFFFFFFFF)>>>0;}
