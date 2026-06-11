@@ -85,8 +85,9 @@ async function callGemini({model,max_tokens,system,messages}){
 
 async function callAI(payload){
   const motor=getMotor();
-  if(motor==='claude')return callClaude(payload);
-  if(motor==='gemini')return callGemini(payload);
+  const p={model:'claude-sonnet-4-20250514',...payload};
+  if(motor==='claude')return callClaude(p);
+  if(motor==='gemini')return callGemini(p);
   throw new Error('Nenhuma chave de API configurada. Acesse Configurações.');
 }
 
@@ -344,7 +345,7 @@ function ChatTool({tool}){
     const novasMsgs=[...msgs,{role:'user',content:typeof apiContent==='string'?apiContent:prompt,docNome:doc?.nome,_api:apiContent}];
     setMsgs(novasMsgs);
     await withLoadingMsg(async () => {
-      const data=await callAI({model:'claude-sonnet-4-20250514',max_tokens:8000,system:tool.system||'Você é um assistente jurídico especializado.',messages:novasMsgs.map(m=>({role:m.role,content:m._api||m.content}))});
+      const data=await callAI({max_tokens:8000,system:tool.system||'Você é um assistente jurídico especializado.',messages:novasMsgs.map(m=>({role:m.role,content:m._api||m.content}))});
       const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
       setMsgs(prev=>[...prev,{role:'assistant',content:txt||'Sem resposta.'}]);
       setDoc(null);
@@ -1093,7 +1094,7 @@ function BibTool(){
     setIaResult('');setIaErro('');
     await withLoading(async () => {
       const prompt=`Você é especialista em doutrina jurídica. Pesquise e liste referências doutrinárias REAIS sobre:\n\nTema: "${busca}"${area!=="Todas as áreas"?`\nÁrea: ${area}`:""}${periodo!=="Qualquer período"?`\nPeríodo: ${periodo}`:""}.\n\nREGRAS: Somente obras que você tem certeza que existem. Se não tiver certeza da edição/página, omita.\nInclua obras nacionais E estrangeiras. Priorize 2018–2025 (exceto clássicos indispensáveis).\n\nPara cada obra:\n**[SOBRENOME, Prenome. *Título*. N. ed. Cidade: Editora, Ano.]**\nRelevância: [1–2 frases]\nNota de rodapé: [SOBRENOME, *Título abrev.*, ed., cidade, editora, ano, p. XX.]\n\nAo final: "**COMO USAR NO TEXTO:**" com 3 exemplos de citação integrada.\nListe pelo menos 8 obras:`;
-      const data=await callAI({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]});
+      const data=await callAI({max_tokens:800,messages:[{role:'user',content:prompt}]});
       const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
       if(!txt)throw new Error('Resposta vazia.');
       setIaResult(txt);
@@ -1199,7 +1200,7 @@ function JurTool(){
     if(!busca.trim())return;
     setIaResult('');setErr('');
     await withLoading(async () => {
-      const data=await callAI({model:'claude-sonnet-4-20250514',max_tokens:4000,messages:[{role:'user',content:`Pesquise jurisprudência REAL sobre: "${busca}"\nTribunal: ${tribunal==='Todos'?'STF, STJ, TST':tribunal} | Período: 2018–2025\n\nPara cada julgado:\n**[TRIBUNAL] — [Tipo] [número]/[UF]**\nRelator: [Min. Nome] | Data: [DD/MM/AAAA]\nTese: [enunciado em 2 frases]\n📋 CITAÇÃO INLINE: "o [Tribunal], ao julgar o [tipo] [número]/[UF], [Rel. Min. Nome], j. [data], fixou a tese de que [tese]"\nⁿ NOTA: "N [Tribunal], [tipo] [número]/[UF], Rel. Min. Nome, j. data."\n\n✗ NUNCA invente dados. Liste pelo menos 5 julgados.`}]});
+      const data=await callAI({max_tokens:1500,messages:[{role:'user',content:`Jurisprudência sobre: "${busca}"\nTribunal: ${tribunal==='Todos'?'STF, STJ, TST':tribunal}\nListe 5 julgados reais (2018-2025). Para cada um:\n**[TRIBUNAL] [tipo nº/UF]** | Relator: [Min. Nome] | [DD/MM/AAAA]\nTese: [2 frases]\nCitação: "[frase do acórdão]" (inline)`}]});
       const txt=(data.content||[]).filter(b=>b.type==='text').map(b=>b.text).join('\n').trim();
       setIaResult(txt);
       const cached=ls('jura-jur-cache',[]);cached.push({id:Date.now(),texto:txt.slice(0,400)});lsSet('jura-jur-cache',cached);
@@ -1696,7 +1697,7 @@ Ao final, liste apenas os capítulos:
 1|Título do Capítulo 1
 2|Título do Capítulo 2
 \`\`\``;
-      const data=await callAI({model:"claude-sonnet-4-20250514",max_tokens:8000,messages:[{role:"user",content:prompt}]});
+      const data=await callAI({max_tokens:2000,messages:[{role:"user",content:prompt}]});
 
       if(!text)throw new Error("Resposta vazia.");
       setOutput(text);setStep("result");
@@ -1881,7 +1882,7 @@ function JurObraV2() {
     setMsgs(novasMsgs);
     await withLoadingMsg(async () => {
       const apiMsgs = novasMsgs.map(m => ({ role:m.role, content: m.docContent || m.content }));
-      const data = await callAI({model:"claude-sonnet-4-20250514",max_tokens:8000,
+      const data = await callAI({max_tokens:8000,
         system:buildSystem(tipo,nivel,projeto,jurCache,bibCache,!!doc,doc?.modoKey),messages:apiMsgs});
       const txt=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
       setMsgs(prev=>[...prev,{role:"assistant",content:txt||"Sem resposta."}]);
@@ -2641,7 +2642,7 @@ function JurPecaV2() {
         content: m.docContent || m.content,
       }));
 
-      const data=await callAI({model:"claude-sonnet-4-20250514",max_tokens:8000,
+      const data=await callAI({max_tokens:8000,
         system:buildSystemPeca(tipoKey,subtipo,area,nivel,docs.length>0),messages:apiMsgs});
       const txt=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
       setMsgs(prev=>[...prev,{role:"assistant",content:txt||"Sem resposta."}]);
@@ -3225,7 +3226,7 @@ function JurFinanceiro(){
     const novasMsgs=[...msgs,{role:"user",content:typeof msgContent==="string"?msgContent:prompt,docContent:doc?msgContent:null,docNome:doc?.nome}];
     setMsgs(novasMsgs);
     await withLoadingMsg(async () => {
-      const data=await callAI({model:"claude-sonnet-4-20250514",max_tokens:4000,
+      const data=await callAI({max_tokens:4000,
         system:jfBuildSystem(tipoKey,regulador,nivel),
         messages:novasMsgs.map(m=>({role:m.role,content:m.docContent||m.content}))});
       const txt=(data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim();
